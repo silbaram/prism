@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.prism.core.targeting.RuleEvaluatorTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2025-11-22T08:47:44.170Z" hostname="PSJ" time="0.083">
+  <properties/>
+  <testcase name="should evaluate simple condition()" classname="com.prism.core.targeting.RuleEvaluatorTest" time="0.083"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
