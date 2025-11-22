@@ -18,17 +18,22 @@ class ExperimentCacheService(
         .build<String, Experiment>()
 
     fun getExperiment(key: String): Experiment? {
-        return cache.get(key) { k ->
-            experimentRepository.findByKey(k)?.let { entity ->
-                if (entity.status != "ACTIVE") return@let null
-                
-                Experiment(
-                    key = entity.key,
-                    variants = entity.variants.map { v ->
-                        Variant(v.name, v.weight)
-                    }
-                )
-            }
+        val cached = cache.getIfPresent(key)
+        if (cached != null) {
+            return cached
         }
+
+        val entity = experimentRepository.findByKey(key)
+        if (entity != null && entity.status == "ACTIVE") {
+            val experiment = Experiment(
+                key = entity.key,
+                variants = entity.variants.map { v ->
+                    Variant(v.name, v.weight)
+                }
+            )
+            cache.put(key, experiment)
+            return experiment
+        }
+        return null
     }
 }

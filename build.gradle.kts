@@ -1,12 +1,13 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.gradle.api.plugins.JavaPluginExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    id("org.springframework.boot") version "3.2.2" apply false
+    id("org.springframework.boot") version "4.0.0" apply false
     id("io.spring.dependency-management") version "1.1.4" apply false
-    kotlin("jvm") version "1.9.22" apply false
-    kotlin("plugin.spring") version "1.9.22" apply false
-    kotlin("plugin.jpa") version "1.9.22" apply false
+    kotlin("jvm") version "2.1.0" apply false
+    kotlin("plugin.spring") version "2.1.0" apply false
+    kotlin("plugin.jpa") version "2.1.0" apply false
 }
 
 allprojects {
@@ -29,15 +30,18 @@ subprojects {
     }
 
     tasks.withType<KotlinCompile> {
-        kotlinOptions {
-            freeCompilerArgs += "-Xjsr305=strict"
-            jvmTarget = "17"
+        compilerOptions {
+            freeCompilerArgs.addAll(listOf("-Xjsr305=strict"))
+            jvmTarget.set(JvmTarget.JVM_21)
         }
     }
 
     configure<JavaPluginExtension> {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        toolchain {
+            languageVersion.set(JavaLanguageVersion.of(25))
+        }
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     tasks.withType<Test> { useJUnitPlatform() }
