@@ -2,6 +2,9 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.gradle.api.plugins.JavaPluginExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val kotestVersion = "5.9.0"
+val mockkVersion = "1.13.11"
+
 plugins {
     id("org.springframework.boot") version "4.0.0" apply false
     id("io.spring.dependency-management") version "1.1.4" apply false
@@ -26,7 +29,9 @@ subprojects {
     dependencies {
         "implementation"("com.fasterxml.jackson.module:jackson-module-kotlin")
         "implementation"("org.jetbrains.kotlin:kotlin-reflect")
-        "testImplementation"("org.jetbrains.kotlin:kotlin-test-junit5")
+        "testImplementation"("io.kotest:kotest-runner-junit5:$kotestVersion")
+        "testImplementation"("io.kotest:kotest-assertions-core:$kotestVersion")
+        "testImplementation"("io.mockk:mockk:$mockkVersion")
     }
 
     tasks.withType<KotlinCompile> {

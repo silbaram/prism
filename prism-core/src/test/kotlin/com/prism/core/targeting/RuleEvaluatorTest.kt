@@ -1,42 +1,38 @@
 package com.prism.core.targeting
 
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+// RuleEvaluator의 SpEL 기반 타기팅 평가 로직을 검증하는 단위 테스트입니다.
 
-class RuleEvaluatorTest {
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.booleans.shouldBeTrue
 
-    @Test
-    fun `should evaluate simple condition`() {
+class RuleEvaluatorTest : FunSpec({
+
+    test("사용자 나이가 조건을 만족하면 true를 반환한다") {
         val rule = TargetingRule("age >= 20")
         val context = UserContext.from(mapOf("age" to 25))
-        
-        assertTrue(RuleEvaluator.evaluate(rule, context))
+
+        RuleEvaluator.evaluate(rule, context).shouldBeTrue()
     }
 
-    @Test
-    fun `should evaluate string comparison`() {
+    test("문자열 비교를 정확히 처리한다") {
         val rule = TargetingRule("os == 'iOS'")
         val context = UserContext.from(mapOf("os" to "iOS"))
-        
-        assertTrue(RuleEvaluator.evaluate(rule, context))
+
+        RuleEvaluator.evaluate(rule, context).shouldBeTrue()
     }
 
-    @Test
-    fun `should return false when condition not met`() {
+    test("조건을 만족하지 않으면 false를 반환한다") {
         val rule = TargetingRule("level == 'VIP'")
         val context = UserContext.from(mapOf("level" to "BASIC"))
-        
-        assertFalse(RuleEvaluator.evaluate(rule, context))
+
+        RuleEvaluator.evaluate(rule, context).shouldBeFalse()
     }
-    
-    @Test
-    fun `should handle missing attributes gracefully (or as false)`() {
+
+    test("존재하지 않는 속성은 false로 처리한다") {
         val rule = TargetingRule("age > 10")
         val context = UserContext.from(emptyMap())
-        
-        // SpEL throws exception if property not found in map context usually, 
-        // RuleEvaluator catches and returns false
-        assertFalse(RuleEvaluator.evaluate(rule, context))
+
+        RuleEvaluator.evaluate(rule, context).shouldBeFalse()
     }
-}
+})

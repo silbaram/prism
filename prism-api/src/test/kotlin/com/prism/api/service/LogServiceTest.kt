@@ -1,56 +1,47 @@
 package com.prism.api.service
 
+// 비동기 로그 적재 서비스가 노출·전환 이벤트를 정확히 저장하는지 검증하는 단위 테스트입니다.
+
 import com.prism.api.repository.ConversionRepository
 import com.prism.api.repository.ImpressionRepository
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.context.SpringBootTest
-import java.util.concurrent.TimeUnit
-import org.awaitility.Awaitility.await
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
 
-@SpringBootTest
-class LogServiceTest {
+class LogServiceTest : FunSpec({
 
-    @Autowired
-    lateinit var logService: LogService
+    val impressionRepository = mockk<ImpressionRepository>()
+    val conversionRepository = mockk<ConversionRepository>()
+    val logService = LogService(impressionRepository, conversionRepository)
 
-    @Autowired
-    lateinit var impressionRepository: ImpressionRepository
+    test("노출 로그를 비동기로 적재한다") {
+        val impressionSlot = slot<com.prism.api.domain.ImpressionEntity>()
+        every { impressionRepository.save(capture(impressionSlot)) } answers { impressionSlot.captured }
 
-    @Autowired
-    lateinit var conversionRepository: ConversionRepository
-
-    @Test
-    fun `should save impression log asynchronously`() {
-        val countBefore = impressionRepository.count()
-        
         logService.logImpression("test-exp", "A", "user-1")
-        
-        // Wait for async execution
-        await().atMost(2, TimeUnit.SECONDS).until {
-            impressionRepository.count() == countBefore + 1
+
+        verify(exactly = 1) { impressionRepository.save(any()) }
+        with(impressionSlot.captured) {
+            experimentKey shouldBe "test-exp"
+            variant shouldBe "A"
+            userId shouldBe "user-1"
         }
-        
-        val logs = impressionRepository.findAll()
-        val lastLog = logs.last()
-        assertEquals("test-exp", lastLog.experimentKey)
-        assertEquals("A", lastLog.variant)
-        assertEquals("user-1", lastLog.userId)
     }
 
-    @Test
-    fun `should save conversion log asynchronously`() {
-        val countBefore = conversionRepository.count()
-        
+    test("전환 로그를 비동기로 적재한다") {
+        val conversionSlot = slot<com.prism.api.domain.ConversionEntity>()
+        every { conversionRepository.save(capture(conversionSlot)) } answers { conversionSlot.captured }
+
         logService.logConversion("test-exp", "user-1", "purchase")
-        
-        await().atMost(2, TimeUnit.SECONDS).until {
-            conversionRepository.count() == countBefore + 1
+
+        verify(exactly = 1) { conversionRepository.save(any()) }
+        with(conversionSlot.captured) {
+            experimentKey shouldBe "test-exp"
+            userId shouldBe "user-1"
+            eventName shouldBe "purchase"
         }
-        
-        val logs = conversionRepository.findAll()
-        val lastLog = logs.last()
-        assertEquals("purchase", lastLog.eventName)
     }
-}
+})

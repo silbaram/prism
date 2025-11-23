@@ -1,59 +1,46 @@
-
 package com.prism.core.splitter
+
+// TrafficSplitter가 사용자별 결정성을 유지하고 트래픽 가중치를 충실히 따르는지 검증하는 테스트입니다.
 
 import com.prism.core.model.Experiment
 import com.prism.core.model.Variant
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
-import kotlin.math.abs
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContainAll
+import io.kotest.matchers.doubles.plusOrMinus
+import io.kotest.matchers.shouldBe
 
-class TrafficSplitterTest {
+class TrafficSplitterTest : FunSpec({
 
-    @Test
-    fun `should always assign same variant for same user`() {
-        val variants = listOf(
-            Variant("A", 50),
-            Variant("B", 50)
-        )
+    test("동일 사용자에게 항상 동일 변형을 할당한다") {
+        val variants = listOf(Variant("A", 50), Variant("B", 50))
         val experiment = Experiment("test-exp", variants)
-        
-        val user1 = "user-123"
-        val result1 = TrafficSplitter.assign(experiment, user1)
-        val result2 = TrafficSplitter.assign(experiment, user1)
-        
-        assertEquals(result1, result2, "Assignment should be deterministic")
+
+        val userId = "user-123"
+        val firstAssignment = TrafficSplitter.assign(experiment, userId)
+        val secondAssignment = TrafficSplitter.assign(experiment, userId)
+
+        firstAssignment shouldBe secondAssignment
     }
 
-    @Test
-    fun `should distribute traffic according to weights`() {
-        val variants = listOf(
-            Variant("A", 30),
-            Variant("B", 70)
-        )
+    test("가중치 비율에 따라 분배한다") {
+        val variants = listOf(Variant("A", 30), Variant("B", 70))
         val experiment = Experiment("distribution-test", variants)
-        
-        val totalUsers = 10000
+
+        val totalUsers = 10_000
         val results = mutableMapOf<String, Int>()
-        
-        for (i in 1..totalUsers) {
-            val userId = "user-$i"
-            val variant = TrafficSplitter.assign(experiment, userId)
-            if (variant != null) {
-                results[variant.name] = results.getOrDefault(variant.name, 0) + 1
+        repeat(totalUsers) { idx ->
+            val variant = TrafficSplitter.assign(experiment, "user-${idx + 1}")
+            variant?.let { currentVariant ->
+                results[currentVariant.name] = results.getOrDefault(currentVariant.name, 0) + 1
             }
         }
-        
-        val countA = results["A"] ?: 0
-        val countB = results["B"] ?: 0
-        
-        val ratioA = countA.toDouble() / totalUsers
-        val ratioB = countB.toDouble() / totalUsers
-        
-        println("A: $countA ($ratioA), B: $countB ($ratioB)")
-        
-        // Allow 2% margin of error
-        assertTrue(abs(ratioA - 0.3) < 0.02, "A ratio should be close to 0.3")
-        assertTrue(abs(ratioB - 0.7) < 0.02, "B ratio should be close to 0.7")
+
+        results.keys.shouldContainAll("A", "B")
+
+        val ratioA = (results["A"] ?: 0).toDouble() / totalUsers
+        val ratioB = (results["B"] ?: 0).toDouble() / totalUsers
+
+        ratioA shouldBe (0.3 plusOrMinus 0.02)
+        ratioB shouldBe (0.7 plusOrMinus 0.02)
     }
-}
+})

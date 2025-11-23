@@ -1,43 +1,40 @@
-
 package com.prism.admin.service
 
+// AnalyticsService가 변형별 노출·전환 집계를 바탕으로 CVR과 승자를 산출하는지 확인하는 테스트입니다.
+
 import com.prism.admin.repository.AnalyticsRepository
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Test
-import org.mockito.Mockito.`when`
-import org.mockito.Mockito.mock
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
 
-class AnalyticsServiceTest {
+class AnalyticsServiceTest : FunSpec({
 
-    private val analyticsRepository = mock(AnalyticsRepository::class.java)
-    private val analyticsService = AnalyticsService(analyticsRepository)
+    val analyticsRepository = mockk<AnalyticsRepository>()
+    val analyticsService = AnalyticsService(analyticsRepository)
 
-    @Test
-    fun `should calculate CVR and determine winner`() {
+    test("CVR을 계산하고 승자를 도출한다") {
         val experimentKey = "test-exp"
-        
-        // Mock impressions: A=100, B=100
-        `when`(analyticsRepository.countImpressionsByVariant(experimentKey)).thenReturn(listOf(
+
+        every { analyticsRepository.countImpressionsByVariant(experimentKey) } returns listOf(
             arrayOf("A", 100L),
             arrayOf("B", 100L)
-        ))
-        
-        // Mock conversions: A=10, B=20
-        `when`(analyticsRepository.countConversionsByVariant(experimentKey)).thenReturn(listOf(
+        )
+
+        every { analyticsRepository.countConversionsByVariant(experimentKey) } returns listOf(
             arrayOf("A", 10L),
             arrayOf("B", 20L)
-        ))
+        )
 
         val result = analyticsService.getExperimentStats(experimentKey)
 
-        assertEquals(2, result.stats.size)
-        
-        val statA = result.stats.find { it.variant == "A" }!!
-        assertEquals(10.0, statA.cvr)
-        
-        val statB = result.stats.find { it.variant == "B" }!!
-        assertEquals(20.0, statB.cvr)
-        
-        assertEquals("B", result.winnerVariant)
+        result.stats.size shouldBe 2
+        with(result.stats.first { it.variant == "A" }) {
+            cvr shouldBe 10.0
+        }
+        with(result.stats.first { it.variant == "B" }) {
+            cvr shouldBe 20.0
+        }
+        result.winnerVariant shouldBe "B"
     }
-}
+})
