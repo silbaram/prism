@@ -2,8 +2,11 @@ package com.prism.admin.service
 
 // 실험 생성과 가중치 검증 로직을 MockK로 단위 테스트합니다.
 
-import com.prism.admin.domain.ExperimentStatus
-import com.prism.admin.repository.ExperimentRepository
+import io.github.silbaram.prism.admin.api.domain.ExperimentStatus
+import io.github.silbaram.prism.admin.api.repository.ExperimentRepository
+import io.github.silbaram.prism.admin.api.domain.ExperimentEntity
+import io.github.silbaram.prism.admin.api.service.ExperimentService
+import io.github.silbaram.prism.admin.api.service.VariantDto
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
@@ -28,7 +31,7 @@ class ExperimentServiceTest : FunSpec({
         val variants = listOf(VariantDto("A", 50), VariantDto("B", 50))
 
         every { experimentRepository.findByKey("test-exp") } returns null
-        val savedEntity = slot<com.prism.admin.domain.ExperimentEntity>()
+        val savedEntity = slot<ExperimentEntity>()
         every { experimentRepository.save(capture(savedEntity)) } answers { savedEntity.captured }
 
         val created = experimentService.createExperiment("test-exp", "Test Description", variants)

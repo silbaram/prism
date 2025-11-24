@@ -1,8 +1,7 @@
+package io.github.silbaram.prism.admin.api.controller
 
-package com.prism.admin.controller
-
-import com.prism.admin.service.AnalyticsService
-import com.prism.admin.service.ExperimentStats
+import io.github.silbaram.prism.admin.api.service.AnalyticsService
+import io.github.silbaram.prism.admin.api.service.ExperimentStats
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestMapping

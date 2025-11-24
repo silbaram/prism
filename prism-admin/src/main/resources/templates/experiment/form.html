@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <h3 class="mb-3">새 실험 생성</h3>
+
+            <form action="/admin/experiments" method="post" class="card p-4 shadow-sm">
+
+                <div class="mb-3">
+                    <label class="form-label">실험 Key (영문)</label>
+                    <input type="text" name="key" class="form-control" placeholder="ex) main_banner_test" required>
+                    <div class="form-text">코드에서 사용할 고유 식별자입니다.</div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">설명</label>
+                    <textarea name="description" class="form-control" rows="2"></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">트래픽 할당 (%)</label>
+                    <input type="number" name="trafficPercent" class="form-control" value="50" min="0" max="100">
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary btn-lg">저장하기</button>
+                    <a href="/admin/experiments" class="btn btn-outline-secondary">취소</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</th:block>
+
+</html>

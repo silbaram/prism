@@ -2,7 +2,8 @@ package com.prism.admin.service
 
 // AnalyticsService가 변형별 노출·전환 집계를 바탕으로 CVR과 승자를 산출하는지 확인하는 테스트입니다.
 
-import com.prism.admin.repository.AnalyticsRepository
+import io.github.silbaram.prism.admin.api.repository.AnalyticsRepository
+import io.github.silbaram.prism.admin.api.service.AnalyticsService
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every

@@ -1,7 +1,6 @@
+package io.github.silbaram.prism.admin.api.service
 
-package com.prism.admin.service
-
-import com.prism.admin.repository.AnalyticsRepository
+import io.github.silbaram.prism.admin.api.repository.AnalyticsRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 

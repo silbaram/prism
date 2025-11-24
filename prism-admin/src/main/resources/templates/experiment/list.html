@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+    <div>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2>🧪 실험 목록</h2>
+            <a href="/admin/experiments/new" class="btn btn-primary">새 실험 만들기</a>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ID</th>
+                            <th>Key</th>
+                            <th>트래픽 (%)</th>
+                            <th>상태</th>
+                            <th>생성일</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="exp : ${experiments}">
+                            <td th:text="${exp.id}">1</td>
+                            <td th:text="${exp.key}" class="fw-bold">main_btn_color</td>
+                            <td>
+                                <span class="badge bg-info" th:text="${exp.trafficPercent} + '%'">50%</span>
+                            </td>
+                            <td>
+                                <span th:if="${exp.isActive}" class="badge bg-success">진행중</span>
+                                <span th:unless="${exp.isActive}" class="badge bg-secondary">중지됨</span>
+                            </td>
+                            <td th:text="${#temporals.format(exp.createdAt, 'yyyy-MM-dd HH:mm')}"></td>
+                        </tr>
+                        <tr th:if="${experiments.empty}">
+                            <td colspan="5" class="text-center py-4">생성된 실험이 없습니다.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</th:block>
+
+</html>

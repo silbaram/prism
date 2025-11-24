@@ -1,9 +1,8 @@
+package io.github.silbaram.prism.admin.api.controller
 
-package com.prism.admin.controller
-
-import com.prism.admin.domain.ExperimentEntity
-import com.prism.admin.service.ExperimentService
-import com.prism.admin.service.VariantDto
+import io.github.silbaram.prism.admin.api.domain.ExperimentEntity
+import io.github.silbaram.prism.admin.api.service.ExperimentService
+import io.github.silbaram.prism.admin.api.service.VariantDto
 import org.springframework.web.bind.annotation.*
 
 @RestController

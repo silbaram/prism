@@ -1,10 +1,9 @@
+package io.github.silbaram.prism.admin.api.service
 
-package com.prism.admin.service
-
-import com.prism.admin.domain.ExperimentEntity
-import com.prism.admin.domain.ExperimentStatus
-import com.prism.admin.domain.VariantEntity
-import com.prism.admin.repository.ExperimentRepository
+import io.github.silbaram.prism.admin.api.domain.ExperimentEntity
+import io.github.silbaram.prism.admin.api.domain.ExperimentStatus
+import io.github.silbaram.prism.admin.api.domain.VariantEntity
+import io.github.silbaram.prism.admin.api.repository.ExperimentRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 

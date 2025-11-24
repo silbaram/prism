@@ -1,7 +1,6 @@
+package io.github.silbaram.prism.admin.api.repository
 
-package com.prism.admin.repository
-
-import com.prism.admin.domain.ImpressionLogEntity
+import io.github.silbaram.prism.admin.api.domain.ImpressionLogEntity
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.stereotype.Repository
