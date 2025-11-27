@@ -1,4 +1,4 @@
-package com.prism.core.targeting
+package io.github.silbaram.prism.core.targeting
 
 data class UserContext(
     val attributes: Map<String, Any>

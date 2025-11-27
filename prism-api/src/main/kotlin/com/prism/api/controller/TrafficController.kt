@@ -1,7 +1,7 @@
 package com.prism.api.controller
 
 import com.prism.api.service.ExperimentCacheService
-import com.prism.core.splitter.TrafficSplitter
+import io.github.silbaram.prism.core.splitter.TrafficSplitter
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam

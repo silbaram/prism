@@ -1,5 +1,4 @@
-
-package com.prism.core.hashing
+package io.github.silbaram.prism.core.hashing
 
 object MurmurHash {
     private const val SEED = 0x9747b28c.toInt()

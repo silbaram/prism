@@ -1,4 +1,4 @@
-package com.prism.core.splitter
+package io.github.silbaram.prism.core.splitter
 
 // TrafficSplitter가 사용자별 결정성을 유지하고 트래픽 가중치를 충실히 따르는지 검증하는 테스트입니다.
 

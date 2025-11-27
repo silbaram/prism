@@ -1,4 +1,4 @@
-package com.prism.core.targeting
+package io.github.silbaram.prism.core.targeting
 
 // RuleEvaluator의 SpEL 기반 타기팅 평가 로직을 검증하는 단위 테스트입니다.
 

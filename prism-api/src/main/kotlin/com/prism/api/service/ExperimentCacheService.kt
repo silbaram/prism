@@ -2,10 +2,10 @@
 package com.prism.api.service
 
 import com.github.benmanes.caffeine.cache.Caffeine
-import io.github.silbaram.prism.infrastructure.persistence.repository.ExperimentRepository
+import io.github.silbaram.prism.core.model.Experiment
+import io.github.silbaram.prism.core.model.Variant
 import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
-import com.prism.core.model.Experiment
-import com.prism.core.model.Variant
+import io.github.silbaram.prism.infrastructure.persistence.repository.ExperimentRepository
 import org.springframework.stereotype.Service
 import java.util.concurrent.TimeUnit
 

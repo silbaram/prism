@@ -1,7 +1,6 @@
+package io.github.silbaram.prism.core.model
 
-package com.prism.core.model
-
-import com.prism.core.targeting.TargetingRule
+import io.github.silbaram.prism.core.targeting.TargetingRule
 
 data class Experiment(
     val key: String,

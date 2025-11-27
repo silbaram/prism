@@ -1,5 +1,4 @@
-
-package com.prism.core.model
+package io.github.silbaram.prism.core.model
 
 data class Variant(
     val name: String,

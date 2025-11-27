@@ -1,11 +1,10 @@
+package io.github.silbaram.prism.core.splitter
 
-package com.prism.core.splitter
-
-import com.prism.core.hashing.MurmurHash
-import com.prism.core.model.Experiment
-import com.prism.core.model.Variant
-import com.prism.core.targeting.RuleEvaluator
-import com.prism.core.targeting.UserContext
+import io.github.silbaram.prism.core.hashing.MurmurHash
+import io.github.silbaram.prism.core.model.Experiment
+import io.github.silbaram.prism.core.model.Variant
+import io.github.silbaram.prism.core.targeting.RuleEvaluator
+import io.github.silbaram.prism.core.targeting.UserContext
 import kotlin.math.abs
 
 object TrafficSplitter {

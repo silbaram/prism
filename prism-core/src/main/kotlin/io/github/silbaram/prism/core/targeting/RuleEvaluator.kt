@@ -1,4 +1,4 @@
-package com.prism.core.targeting
+package io.github.silbaram.prism.core.targeting
 
 import org.springframework.expression.spel.standard.SpelExpressionParser
 import org.springframework.expression.spel.support.StandardEvaluationContext
