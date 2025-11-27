@@ -5,9 +5,9 @@ plugins {
 
 dependencies {
     implementation(project(":prism-core"))
-    
+    implementation(project(":prism-infrastructure"))
+
     implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     

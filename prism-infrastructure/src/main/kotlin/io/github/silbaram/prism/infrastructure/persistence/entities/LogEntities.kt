@@ -1,11 +1,11 @@
-package com.prism.api.domain
+package io.github.silbaram.prism.infrastructure.persistence.entities
 
 import jakarta.persistence.*
 import java.time.LocalDateTime
 
 @Entity
 @Table(name = "log_impression")
-class ImpressionEntity(
+class ImpressionLogEntity(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
@@ -25,7 +25,7 @@ class ImpressionEntity(
 
 @Entity
 @Table(name = "log_conversion")
-class ConversionEntity(
+class ConversionLogEntity(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,

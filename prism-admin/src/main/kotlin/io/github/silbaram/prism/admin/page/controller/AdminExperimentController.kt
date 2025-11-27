@@ -1,7 +1,7 @@
 package io.github.silbaram.prism.admin.page.controller
 
-import io.github.silbaram.prism.admin.page.model.ExperimentEntity
-import io.github.silbaram.prism.admin.page.repository.ExperimentRepository
+import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
+import io.github.silbaram.prism.infrastructure.persistence.repository.ExperimentRepository
 import org.springframework.stereotype.Controller
 import org.springframework.ui.Model
 import org.springframework.web.bind.annotation.GetMapping
@@ -26,7 +26,7 @@ class AdminExperimentController(
     // 2. 실험 생성 폼 페이지
     @GetMapping("/new")
     fun createForm(model: Model): String {
-        model.addAttribute("experiment", ExperimentEntity(key = "", variants = mutableListOf("A", "B")))
+        model.addAttribute("experiment", ExperimentEntity(key = "", description = ""))
         return "experiment/form"
     }
 

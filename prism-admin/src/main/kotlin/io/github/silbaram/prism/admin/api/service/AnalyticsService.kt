@@ -1,19 +1,21 @@
 package io.github.silbaram.prism.admin.api.service
 
-import io.github.silbaram.prism.admin.api.repository.AnalyticsRepository
+import io.github.silbaram.prism.infrastructure.persistence.repository.ImpressionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.repository.ConversionLogRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 @Service
 @Transactional(readOnly = true)
 class AnalyticsService(
-    private val analyticsRepository: AnalyticsRepository
+    private val impressionRepository: ImpressionLogRepository,
+    private val conversionRepository: ConversionLogRepository
 ) {
     fun getExperimentStats(experimentKey: String): ExperimentStats {
-        val impressions = analyticsRepository.countImpressionsByVariant(experimentKey)
+        val impressions = impressionRepository.countImpressionsByVariant(experimentKey)
             .associate { (it[0] as String) to (it[1] as Long) }
-        
-        val conversions = analyticsRepository.countConversionsByVariant(experimentKey)
+
+        val conversions = conversionRepository.countConversionsByVariant(experimentKey)
             .associate { (it[0] as String) to (it[1] as Long) }
 
         val variantStats = impressions.map { (variant, impressionCount) ->

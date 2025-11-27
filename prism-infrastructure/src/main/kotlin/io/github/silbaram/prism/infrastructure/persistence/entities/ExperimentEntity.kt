@@ -1,4 +1,4 @@
-package io.github.silbaram.prism.admin.api.domain
+package io.github.silbaram.prism.infrastructure.persistence.entities
 
 import jakarta.persistence.*
 import java.time.LocalDateTime

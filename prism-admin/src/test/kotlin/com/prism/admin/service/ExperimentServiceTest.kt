@@ -2,9 +2,9 @@ package com.prism.admin.service
 
 // 실험 생성과 가중치 검증 로직을 MockK로 단위 테스트합니다.
 
-import io.github.silbaram.prism.admin.api.domain.ExperimentStatus
-import io.github.silbaram.prism.admin.api.repository.ExperimentRepository
-import io.github.silbaram.prism.admin.api.domain.ExperimentEntity
+import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.repository.ExperimentRepository
+import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
 import io.github.silbaram.prism.admin.api.service.ExperimentService
 import io.github.silbaram.prism.admin.api.service.VariantDto
 import io.kotest.assertions.throwables.shouldThrow

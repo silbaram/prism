@@ -1,7 +1,7 @@
-package io.github.silbaram.prism.admin.api.repository
+package io.github.silbaram.prism.infrastructure.persistence.repository
 
-import io.github.silbaram.prism.admin.api.domain.ExperimentEntity
-import io.github.silbaram.prism.admin.api.domain.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
+import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Repository
 

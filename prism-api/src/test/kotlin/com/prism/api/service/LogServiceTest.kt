@@ -2,8 +2,8 @@ package com.prism.api.service
 
 // 비동기 로그 적재 서비스가 노출·전환 이벤트를 정확히 저장하는지 검증하는 단위 테스트입니다.
 
-import com.prism.api.repository.ConversionRepository
-import com.prism.api.repository.ImpressionRepository
+import io.github.silbaram.prism.infrastructure.persistence.repository.ConversionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.repository.ImpressionLogRepository
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
@@ -13,12 +13,12 @@ import io.mockk.verify
 
 class LogServiceTest : FunSpec({
 
-    val impressionRepository = mockk<ImpressionRepository>()
-    val conversionRepository = mockk<ConversionRepository>()
+    val impressionRepository = mockk<ImpressionLogRepository>()
+    val conversionRepository = mockk<ConversionLogRepository>()
     val logService = LogService(impressionRepository, conversionRepository)
 
     test("노출 로그를 비동기로 적재한다") {
-        val impressionSlot = slot<com.prism.api.domain.ImpressionEntity>()
+        val impressionSlot = slot<io.github.silbaram.prism.infrastructure.persistence.entities.ImpressionLogEntity>()
         every { impressionRepository.save(capture(impressionSlot)) } answers { impressionSlot.captured }
 
         logService.logImpression("test-exp", "A", "user-1")
@@ -32,7 +32,7 @@ class LogServiceTest : FunSpec({
     }
 
     test("전환 로그를 비동기로 적재한다") {
-        val conversionSlot = slot<com.prism.api.domain.ConversionEntity>()
+        val conversionSlot = slot<io.github.silbaram.prism.infrastructure.persistence.entities.ConversionLogEntity>()
         every { conversionRepository.save(capture(conversionSlot)) } answers { conversionSlot.captured }
 
         logService.logConversion("test-exp", "user-1", "purchase")

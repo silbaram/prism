@@ -1,6 +1,6 @@
 package io.github.silbaram.prism.admin.api.controller
 
-import io.github.silbaram.prism.admin.api.domain.ExperimentEntity
+import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
 import io.github.silbaram.prism.admin.api.service.ExperimentService
 import io.github.silbaram.prism.admin.api.service.VariantDto
 import org.springframework.web.bind.annotation.*
