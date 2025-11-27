@@ -7,12 +7,26 @@ Prism은 확장 가능한 A/B 테스트 플랫폼입니다.
 - **prism-core**: 핵심 도메인 로직 (MurmurHash, TrafficSplitter, Targeting). 순수 Kotlin.
 - **prism-admin**: 실험 관리 및 통계 분석 서버 (Spring Boot, JPA).
 - **prism-api**: 트래픽 분배 및 로그 수집 서버 (Spring Boot, Caffeine, Async).
+- **prism-infrastructure**: 데이터베이스 엔티티 및 공통 인프라 설정 (JPA Entities, Schema).
 
 ## 2. 시작하기 (Getting Started)
 
 ### 필수 요구사항
 - JDK 17 이상
+- Docker & Docker Compose (로컬 DB 실행용)
 - Gradle (또는 IntelliJ IDEA 사용 권장)
+
+### 로컬 개발 환경 설정 (Local Setup)
+**1. 데이터베이스 실행**
+프로젝트 루트의 `docker` 디렉토리에서 Docker Compose를 실행하여 MySQL 데이터베이스를 준비합니다.
+```bash
+cd docker
+docker-compose up -d
+```
+이 명령어는 MySQL 컨테이너를 실행하고, `prism-infrastructure` 모듈의 `schema.sql`을 사용하여 테이블을 자동으로 생성합니다.
+
+**2. 애플리케이션 실행**
+데이터베이스가 준비되면 애플리케이션을 실행할 수 있습니다.
 
 ### 빌드 및 테스트
 이 프로젝트는 Gradle을 사용합니다. 터미널에 `gradle`이 설치되어 있지 않다면, **IntelliJ IDEA**로 프로젝트를 열어 실행하는 것을 권장합니다.

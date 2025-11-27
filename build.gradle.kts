@@ -49,5 +49,10 @@ subprojects {
         targetCompatibility = JavaVersion.VERSION_24
     }
 
-    tasks.withType<Test> { useJUnitPlatform() }
+    tasks.withType<Test> {
+        useJUnitPlatform()
+        jvmArgs(
+            "-Dkotest.framework.classpath.scanning.autoscan.disable=true"
+        )
+    }
 }
