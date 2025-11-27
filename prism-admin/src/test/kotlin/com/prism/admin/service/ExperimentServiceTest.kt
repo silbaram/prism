@@ -1,6 +1,6 @@
 package com.prism.admin.service
 
-// 실험 생성과 가중치 검증 로직을 MockK로 단위 테스트합니다.
+
 
 import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
 import io.github.silbaram.prism.infrastructure.persistence.repository.ExperimentRepository
@@ -18,6 +18,18 @@ import io.mockk.verify
 import io.mockk.mockk
 import io.mockk.slot
 
+/**
+ * ExperimentService 단위 테스트
+ *
+ * 이 테스트 클래스는 실험 생성 및 관리 로직을 검증합니다.
+ * 주요 테스트 항목:
+ * 1. 실험 생성 성공 케이스:
+ *    - 정상적인 가중치(합 100)를 가진 변형 목록으로 실험 생성 시, 상태가 DRAFT이고 변형이 올바르게 저장되는지 확인합니다.
+ *    - ExperimentRepository의 save 메서드가 호출되는지 검증합니다.
+ * 2. 유효성 검사 실패 케이스:
+ *    - 변형 가중치의 합이 100이 아닐 경우 IllegalArgumentException이 발생하는지 확인합니다.
+ *    - 예외 발생 시 저장 로직이 실행되지 않음을 검증합니다.
+ */
 class ExperimentServiceTest : FunSpec({
 
     val experimentRepository = mockk<ExperimentRepository>(relaxed = true)
