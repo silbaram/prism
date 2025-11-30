@@ -23,6 +23,9 @@ class ExperimentEntity(
     @OneToMany(mappedBy = "experiment", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var variants: MutableList<VariantEntity> = mutableListOf(),
 
+    @OneToMany(mappedBy = "experiment", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
+    var targetingRules: MutableList<TargetingRuleEntity> = mutableListOf(),
+
     @Column(nullable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),
 
@@ -31,6 +34,11 @@ class ExperimentEntity(
     fun addVariant(variant: VariantEntity) {
         variants.add(variant)
         variant.experiment = this
+    }
+
+    fun addTargetingRule(rule: TargetingRuleEntity) {
+        targetingRules.add(rule)
+        rule.experiment = this
     }
 }
 

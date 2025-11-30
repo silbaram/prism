@@ -5,6 +5,7 @@ import io.github.silbaram.prism.admin.service.ExperimentService
 import io.github.silbaram.prism.admin.service.VariantDto
 import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
 import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.entities.TargetingRuleEntity
 import io.github.silbaram.prism.infrastructure.persistence.entities.VariantEntity
 import io.github.silbaram.prism.infrastructure.persistence.repository.ExperimentRepository
 import org.springframework.data.domain.PageRequest
@@ -60,11 +61,13 @@ class AdminExperimentController(
 
     // 3. 실험 저장 처리
     @PostMapping
+    @Transactional
     fun save(@RequestParam key: String,
              @RequestParam description: String,
              @RequestParam status: ExperimentStatus,
              @RequestParam("variants[].name") variantNames: List<String>,
-             @RequestParam("variants[].weight") variantWeights: List<Int>): String {
+             @RequestParam("variants[].weight") variantWeights: List<Int>,
+             @RequestParam("targetingRules[].expression", required = false) targetingRuleExpressions: List<String>?): String {
 
         // Variant DTO 리스트 생성
         val variants = variantNames.indices.map { i ->
@@ -72,7 +75,15 @@ class AdminExperimentController(
         }
 
         // ExperimentService를 통해 생성
-        experimentService.createExperiment(key, description, variants)
+        val experiment = experimentService.createExperiment(key, description, variants)
+
+        // Targeting Rules 추가
+        targetingRuleExpressions?.filterNot { it.isBlank() }?.forEach { expression ->
+            val ruleEntity = TargetingRuleEntity(expression = expression)
+            experiment.addTargetingRule(ruleEntity)
+        }
+
+        experimentRepository.save(experiment)
 
         return "redirect:/admin/experiments"
     }
@@ -95,7 +106,8 @@ class AdminExperimentController(
                @RequestParam description: String,
                @RequestParam status: ExperimentStatus,
                @RequestParam("variants[].name") variantNames: List<String>,
-               @RequestParam("variants[].weight") variantWeights: List<Int>): String {
+               @RequestParam("variants[].weight") variantWeights: List<Int>,
+               @RequestParam("targetingRules[].expression", required = false) targetingRuleExpressions: List<String>?): String {
 
         val existingExperiment = experimentRepository.findById(id)
             .orElseThrow { IllegalArgumentException("실험을 찾을 수 없습니다. ID: $id") }
@@ -113,6 +125,13 @@ class AdminExperimentController(
                 weight = variantWeights[i]
             )
             existingExperiment.addVariant(variantEntity)
+        }
+
+        // 기존 targeting rules 삭제하고 새로 추가
+        existingExperiment.targetingRules.clear()
+        targetingRuleExpressions?.filterNot { it.isBlank() }?.forEach { expression ->
+            val ruleEntity = TargetingRuleEntity(expression = expression)
+            existingExperiment.addTargetingRule(ruleEntity)
         }
 
         experimentRepository.save(existingExperiment)

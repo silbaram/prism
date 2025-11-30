@@ -115,6 +115,52 @@
                     </div>
                 </div>
 
+                <!-- Targeting Rules 섹션 -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label mb-0">타겟팅 규칙 (Targeting Rules)</label>
+                        <button type="button" class="btn btn-sm btn-outline-success" onclick="addTargetingRule()">
+                            + 규칙 추가
+                        </button>
+                    </div>
+                    <div class="form-text mb-3">
+                        SpEL 표현식으로 타겟팅 조건을 설정합니다. (예: age >= 20, country == 'KR')
+                        <br>모든 규칙은 AND 조건으로 평가됩니다.
+                    </div>
+
+                    <div id="targetingRulesContainer">
+                        <!-- 수정 시 기존 Targeting Rules -->
+                        <div class="rule-item card p-3 mb-2" th:each="rule : ${experiment.targetingRules}">
+                            <div class="row g-2">
+                                <div class="col-md-11">
+                                    <label class="form-label small">조건 (SpEL Expression)</label>
+                                    <input type="text" name="targetingRules[].expression" class="form-control"
+                                           th:value="${rule.expression}"
+                                           placeholder="예: age >= 20 && country == 'KR'">
+                                </div>
+                                <div class="col-md-1 d-flex align-items-end">
+                                    <button type="button" class="btn btn-sm btn-outline-danger w-100"
+                                            onclick="removeTargetingRule(this)">삭제</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 규칙 예시 -->
+                    <div class="card bg-light mt-3">
+                        <div class="card-body p-3">
+                            <h6 class="card-title mb-2">💡 규칙 작성 예시</h6>
+                            <ul class="mb-0 small">
+                                <li><code>age >= 20</code> - 나이가 20세 이상</li>
+                                <li><code>country == 'KR'</code> - 국가가 한국</li>
+                                <li><code>age >= 20 && country == 'KR'</code> - 20세 이상이면서 한국</li>
+                                <li><code>appVersion > '1.0.0'</code> - 앱 버전이 1.0.0보다 높음</li>
+                                <li><code>premium == true</code> - 프리미엄 사용자</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="d-grid gap-2">
                     <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">저장하기</button>
                     <a href="/admin/experiments" class="btn btn-outline-secondary">취소</a>
@@ -193,6 +239,35 @@
                 if (warning) warning.style.display = 'inline';
                 if (submitBtn) submitBtn.disabled = true;
             }
+        };
+
+        // Targeting Rules 관련 함수
+        window.addTargetingRule = function() {
+            console.log('addTargetingRule 호출됨');
+            const container = document.getElementById('targetingRulesContainer');
+
+            const newRule = document.createElement('div');
+            newRule.className = 'rule-item card p-3 mb-2';
+            newRule.innerHTML = `
+                <div class="row g-2">
+                    <div class="col-md-11">
+                        <label class="form-label small">조건 (SpEL Expression)</label>
+                        <input type="text" name="targetingRules[].expression" class="form-control"
+                               placeholder="예: age >= 20 && country == 'KR'">
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                        <button type="button" class="btn btn-sm btn-outline-danger w-100"
+                                onclick="removeTargetingRule(this)">삭제</button>
+                    </div>
+                </div>
+            `;
+
+            container.appendChild(newRule);
+        };
+
+        window.removeTargetingRule = function(btn) {
+            console.log('removeTargetingRule 호출됨');
+            btn.closest('.rule-item').remove();
         };
 
         // 페이지 로드 시 초기화
