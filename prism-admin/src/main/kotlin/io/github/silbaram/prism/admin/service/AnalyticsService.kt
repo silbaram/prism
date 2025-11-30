@@ -1,4 +1,4 @@
-package io.github.silbaram.prism.admin.api.service
+package io.github.silbaram.prism.admin.service
 
 import io.github.silbaram.prism.infrastructure.persistence.repository.ImpressionLogRepository
 import io.github.silbaram.prism.infrastructure.persistence.repository.ConversionLogRepository
@@ -21,7 +21,7 @@ class AnalyticsService(
         val variantStats = impressions.map { (variant, impressionCount) ->
             val conversionCount = conversions[variant] ?: 0L
             val cvr = if (impressionCount > 0) (conversionCount.toDouble() / impressionCount) * 100 else 0.0
-            
+
             VariantStats(
                 variant = variant,
                 impressions = impressionCount,

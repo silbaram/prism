@@ -20,7 +20,7 @@ class ExperimentEntity(
     @Column(nullable = false)
     var status: ExperimentStatus = ExperimentStatus.DRAFT,
 
-    @OneToMany(mappedBy = "experiment", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "experiment", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var variants: MutableList<VariantEntity> = mutableListOf(),
 
     @Column(nullable = false)

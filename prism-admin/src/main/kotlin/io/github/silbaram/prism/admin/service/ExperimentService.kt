@@ -1,4 +1,4 @@
-package io.github.silbaram.prism.admin.api.service
+package io.github.silbaram.prism.admin.service
 
 import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
 import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus

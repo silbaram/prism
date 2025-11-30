@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+    <div>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2>실험 상세 정보</h2>
+            <a href="/admin/experiments" class="btn btn-outline-secondary">목록으로</a>
+        </div>
+
+        <div class="row">
+            <!-- 좌측: 실험 기본 정보 -->
+            <div class="col-md-5">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">기본 정보</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="fw-bold text-secondary">ID</label>
+                            <p class="mb-0" th:text="${experiment.id}">1</p>
+                        </div>
+                        <div class="mb-3">
+                            <label class="fw-bold text-secondary">Experiment Key</label>
+                            <p class="mb-0"><code th:text="${experiment.key}">main_btn_color</code></p>
+                        </div>
+                        <div class="mb-3">
+                            <label class="fw-bold text-secondary">설명</label>
+                            <p class="mb-0" th:text="${experiment.description}">메인 버튼 색상 실험</p>
+                        </div>
+                        <div class="mb-3">
+                            <label class="fw-bold text-secondary">상태</label>
+                            <p class="mb-0">
+                                <span th:switch="${experiment.status?.name()}">
+                                    <span th:case="'DRAFT'" class="badge bg-secondary">작성중</span>
+                                    <span th:case="'ACTIVE'" class="badge bg-success">진행중</span>
+                                    <span th:case="'PAUSED'" class="badge bg-warning">일시중지</span>
+                                    <span th:case="'ENDED'" class="badge bg-dark">종료</span>
+                                </span>
+                            </p>
+                        </div>
+                        <div class="mb-3">
+                            <label class="fw-bold text-secondary">Variants</label>
+                            <ul class="list-group">
+                                <li class="list-group-item d-flex justify-content-between align-items-center"
+                                    th:each="variant : ${experiment.variants}">
+                                    <span th:text="${variant.name}">control</span>
+                                    <span class="badge bg-info rounded-pill" th:text="${variant.weight + '%'}">50%</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="mb-3">
+                            <label class="fw-bold text-secondary">생성일</label>
+                            <p class="mb-0" th:text="${#temporals.format(experiment.createdAt, 'yyyy-MM-dd HH:mm:ss')}">2024-01-01 10:00:00</p>
+                        </div>
+                        <div class="mb-0">
+                            <label class="fw-bold text-secondary">수정일</label>
+                            <p class="mb-0" th:text="${#temporals.format(experiment.updatedAt, 'yyyy-MM-dd HH:mm:ss')}">2024-01-01 10:00:00</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 우측: 통계 정보 -->
+            <div class="col-md-7">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">실험 통계</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- 승자 정보 -->
+                        <div th:if="${stats.winnerVariant != null}" class="alert alert-success mb-4">
+                            <h6 class="alert-heading">🏆 현재 승자 (Winner)</h6>
+                            <p class="mb-0">
+                                <strong th:text="${stats.winnerVariant}">variant_a</strong> 그룹이 가장 높은 CVR을 기록했습니다!
+                            </p>
+                        </div>
+
+                        <!-- 통계 테이블 -->
+                        <table class="table table-hover mb-4">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Variant</th>
+                                    <th class="text-end">노출 수</th>
+                                    <th class="text-end">전환 수</th>
+                                    <th class="text-end">CVR</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr th:each="stat : ${stats.stats}"
+                                    th:classappend="${stat.variant == stats.winnerVariant} ? 'table-success'">
+                                    <td>
+                                        <strong th:text="${stat.variant}">control</strong>
+                                        <span th:if="${stat.variant == stats.winnerVariant}"
+                                              class="badge bg-success ms-2">Winner</span>
+                                    </td>
+                                    <td class="text-end" th:text="${#numbers.formatInteger(stat.impressions, 0, 'COMMA')}">1,234</td>
+                                    <td class="text-end" th:text="${#numbers.formatInteger(stat.conversions, 0, 'COMMA')}">567</td>
+                                    <td class="text-end">
+                                        <strong th:text="${#numbers.formatDecimal(stat.cvr, 1, 2) + '%'}">45.92%</strong>
+                                    </td>
+                                </tr>
+                                <tr th:if="${stats.stats.empty}">
+                                    <td colspan="4" class="text-center text-muted">통계 데이터가 없습니다.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <!-- CVR Progress Bar 시각화 -->
+                        <div th:if="${!stats.stats.empty}">
+                            <h6 class="mb-3">전환율 (CVR) 시각화</h6>
+                            <div th:each="stat : ${stats.stats}" class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span>
+                                        <strong th:text="${stat.variant}">control</strong>
+                                        <span th:if="${stat.variant == stats.winnerVariant}"
+                                              class="badge bg-success ms-1" style="font-size: 0.7em;">Winner</span>
+                                    </span>
+                                    <span th:text="${#numbers.formatDecimal(stat.cvr, 1, 2) + '%'}">45.92%</span>
+                                </div>
+                                <div class="progress" style="height: 25px;">
+                                    <div class="progress-bar"
+                                         th:classappend="${stat.variant == stats.winnerVariant} ? 'bg-success' : 'bg-info'"
+                                         role="progressbar"
+                                         th:style="'width: ' + ${stat.cvr} + '%'"
+                                         th:attr="aria-valuenow=${stat.cvr}"
+                                         aria-valuemin="0"
+                                         aria-valuemax="100">
+                                        <span th:text="${#numbers.formatDecimal(stat.cvr, 1, 2) + '%'}">45.92%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</th:block>
+</html>

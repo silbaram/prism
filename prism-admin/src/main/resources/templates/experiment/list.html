@@ -46,13 +46,18 @@
                             <th style="width: 150px;">설명</th>
                             <th style="width: 120px;">상태</th>
                             <th style="width: 160px;">생성일</th>
-                            <th style="width: 180px;">작업</th>
+                            <th style="width: 260px;">작업</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr th:each="exp : ${experiments.content}">
                             <td th:text="${exp.id}">1</td>
-                            <td><strong th:text="${exp.key}">main_btn_color</strong></td>
+                            <td>
+                                <a th:href="@{/admin/experiments/{id}(id=${exp.id})}"
+                                   class="text-decoration-none">
+                                    <strong th:text="${exp.key}">main_btn_color</strong>
+                                </a>
+                            </td>
                             <td th:text="${exp.description}">설명</td>
                             <td>
                                 <span th:switch="${exp.status?.name()}">
@@ -64,6 +69,8 @@
                             </td>
                             <td th:text="${#temporals.format(exp.createdAt, 'yyyy-MM-dd HH:mm')}">2024-01-01 10:00</td>
                             <td>
+                                <a th:href="@{/admin/experiments/{id}(id=${exp.id})}"
+                                   class="btn btn-sm btn-success">상세/통계</a>
                                 <a th:href="@{/admin/experiments/{id}/edit(id=${exp.id})}"
                                    class="btn btn-sm btn-outline-primary">수정</a>
                                 <form th:action="@{/admin/experiments/{id}/delete(id=${exp.id})}"

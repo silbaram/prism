@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+    <div>
+        <div class="mb-4">
+            <h2>실험 시뮬레이터</h2>
+            <p class="text-muted">특정 User ID가 어떤 그룹(Variant)에 배정되는지 테스트할 수 있습니다.</p>
+        </div>
+
+        <!-- 시뮬레이터 폼 -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <form method="post" action="/admin/simulator/test">
+                    <div class="row g-3">
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold">실험 선택</label>
+                            <select name="experimentId" class="form-select" required
+                                    th:attr="data-selected=${selectedExperimentId}">
+                                <option value="">실험을 선택하세요</option>
+                                <option th:each="exp : ${experiments}"
+                                        th:value="${exp.id}"
+                                        th:text="${exp.key + ' (' + exp.status + ')'}"
+                                        th:selected="${selectedExperimentId != null && selectedExperimentId == exp.id}">
+                                    main_btn_color (ACTIVE)
+                                </option>
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold">User ID</label>
+                            <input type="text" name="userId" class="form-control"
+                                   th:value="${userId}"
+                                   placeholder="예: user_12345"
+                                   required>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary w-100">확인</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 결과 표시 -->
+        <div th:if="${result != null}" class="card shadow-sm border-success">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">🎯 배정 결과</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-success mb-0">
+                    <h4 class="alert-heading">배정 완료!</h4>
+                    <p class="mb-0" style="font-size: 1.1rem;">
+                        User <strong th:text="${userId}">user_12345</strong>님은
+                        <span class="badge bg-primary" style="font-size: 1rem;" th:text="${result}">variant_a</span>
+                        그룹에 배정됩니다.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 사용 안내 -->
+        <div class="mt-4">
+            <div class="card shadow-sm border-info">
+                <div class="card-header bg-info text-white">
+                    <h6 class="mb-0">💡 사용 안내</h6>
+                </div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li>동일한 User ID는 항상 동일한 그룹에 배정됩니다.</li>
+                        <li>User ID를 변경하면 다른 그룹에 배정될 수 있습니다.</li>
+                        <li>배정은 <code>TrafficSplitter.assign()</code> 로직을 직접 사용하여 계산됩니다.</li>
+                        <li>각 Variant의 가중치(weight)에 따라 배정 확률이 결정됩니다.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</th:block>
+</html>

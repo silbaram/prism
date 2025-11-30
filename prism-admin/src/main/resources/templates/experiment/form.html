@@ -6,7 +6,7 @@
             <h3 class="mb-3" th:text="${experiment.id == null ? '새 실험 생성' : '실험 수정'}">새 실험 생성</h3>
 
             <form th:action="${experiment.id == null ? '/admin/experiments' : '/admin/experiments/' + experiment.id}"
-                  method="post" class="card p-4 shadow-sm">
+                  method="post" class="card p-4 shadow-sm" id="experimentForm">
 
                 <div class="mb-3">
                     <label class="form-label">실험 Key (영문)</label>
@@ -32,12 +32,197 @@
                     </select>
                 </div>
 
+                <!-- Variants 섹션 -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label mb-0">Variants (변형 그룹)</label>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addVariant()">
+                            + Variant 추가
+                        </button>
+                    </div>
+                    <div class="form-text mb-3">각 그룹의 가중치 합계는 100이어야 합니다.</div>
+
+                    <div id="variantsContainer">
+                        <!-- 기본 Variant 2개 (새 생성 시) -->
+                        <div class="variant-item card p-3 mb-2" th:if="${experiment.id == null}">
+                            <div class="row g-2">
+                                <div class="col-md-5">
+                                    <label class="form-label small">Variant 이름</label>
+                                    <input type="text" name="variants[].name" class="form-control"
+                                           placeholder="ex) control" required>
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label small">가중치 (%)</label>
+                                    <input type="number" name="variants[].weight" class="form-control variant-weight"
+                                           placeholder="50" value="50" min="0" max="100" required
+                                           oninput="updateWeightSum()">
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <button type="button" class="btn btn-sm btn-outline-danger w-100"
+                                            onclick="removeVariant(this)">삭제</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="variant-item card p-3 mb-2" th:if="${experiment.id == null}">
+                            <div class="row g-2">
+                                <div class="col-md-5">
+                                    <label class="form-label small">Variant 이름</label>
+                                    <input type="text" name="variants[].name" class="form-control"
+                                           placeholder="ex) variant_a" required>
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label small">가중치 (%)</label>
+                                    <input type="number" name="variants[].weight" class="form-control variant-weight"
+                                           placeholder="50" value="50" min="0" max="100" required
+                                           oninput="updateWeightSum()">
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <button type="button" class="btn btn-sm btn-outline-danger w-100"
+                                            onclick="removeVariant(this)">삭제</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 수정 시 기존 Variants -->
+                        <div class="variant-item card p-3 mb-2" th:each="variant : ${experiment.variants}">
+                            <div class="row g-2">
+                                <div class="col-md-5">
+                                    <label class="form-label small">Variant 이름</label>
+                                    <input type="text" name="variants[].name" class="form-control"
+                                           th:value="${variant.name}" required>
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label small">가중치 (%)</label>
+                                    <input type="number" name="variants[].weight" class="form-control variant-weight"
+                                           th:value="${variant.weight}" min="0" max="100" required
+                                           oninput="updateWeightSum()">
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <button type="button" class="btn btn-sm btn-outline-danger w-100"
+                                            onclick="removeVariant(this)">삭제</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 가중치 합계 표시 -->
+                    <div class="alert mt-3" id="weightSumAlert" role="alert">
+                        가중치 합계: <strong id="weightSum">100</strong>%
+                        <span id="weightWarning" class="text-danger ms-2" style="display: none;">
+                            ⚠️ 합계가 100%가 아닙니다!
+                        </span>
+                    </div>
+                </div>
+
                 <div class="d-grid gap-2">
-                    <button type="submit" class="btn btn-primary btn-lg">저장하기</button>
+                    <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">저장하기</button>
                     <a href="/admin/experiments" class="btn btn-outline-secondary">취소</a>
                 </div>
             </form>
         </div>
+
+        <script>
+        // 전역 함수로 명시적 선언
+        window.addVariant = function() {
+            console.log('addVariant 호출됨');
+            const container = document.getElementById('variantsContainer');
+            const variantCount = container.children.length;
+
+            const newVariant = document.createElement('div');
+            newVariant.className = 'variant-item card p-3 mb-2';
+            newVariant.innerHTML = `
+                <div class="row g-2">
+                    <div class="col-md-5">
+                        <label class="form-label small">Variant 이름</label>
+                        <input type="text" name="variants[].name" class="form-control"
+                               placeholder="ex) variant_${String.fromCharCode(97 + variantCount)}" required>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small">가중치 (%)</label>
+                        <input type="number" name="variants[].weight" class="form-control variant-weight"
+                               placeholder="0" value="0" min="0" max="100" required
+                               oninput="updateWeightSum()">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="button" class="btn btn-sm btn-outline-danger w-100"
+                                onclick="removeVariant(this)">삭제</button>
+                    </div>
+                </div>
+            `;
+
+            container.appendChild(newVariant);
+            updateWeightSum();
+        };
+
+        window.removeVariant = function(btn) {
+            console.log('removeVariant 호출됨');
+            const container = document.getElementById('variantsContainer');
+            if (container.children.length <= 1) {
+                alert('최소 1개의 Variant는 필요합니다.');
+                return;
+            }
+            btn.closest('.variant-item').remove();
+            updateWeightSum();
+        };
+
+        window.updateWeightSum = function() {
+            console.log('updateWeightSum 호출됨');
+            const weights = document.querySelectorAll('.variant-weight');
+            let sum = 0;
+            weights.forEach(input => {
+                const val = parseInt(input.value) || 0;
+                console.log('가중치:', val);
+                sum += val;
+            });
+
+            console.log('총 합계:', sum);
+            const sumElement = document.getElementById('weightSum');
+            const alertElement = document.getElementById('weightSumAlert');
+            const warning = document.getElementById('weightWarning');
+            const submitBtn = document.getElementById('submitBtn');
+
+            if (sumElement) sumElement.textContent = sum;
+
+            if (sum === 100) {
+                if (alertElement) alertElement.className = 'alert alert-success mt-3';
+                if (warning) warning.style.display = 'none';
+                if (submitBtn) submitBtn.disabled = false;
+            } else {
+                if (alertElement) alertElement.className = 'alert alert-warning mt-3';
+                if (warning) warning.style.display = 'inline';
+                if (submitBtn) submitBtn.disabled = true;
+            }
+        };
+
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOMContentLoaded - 초기화 시작');
+
+            // 가중치 합계 계산
+            setTimeout(function() {
+                updateWeightSum();
+            }, 100);
+
+            // 폼 제출 전 최종 검증
+            const form = document.getElementById('experimentForm');
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    const weights = document.querySelectorAll('.variant-weight');
+                    let sum = 0;
+                    weights.forEach(input => {
+                        sum += parseInt(input.value) || 0;
+                    });
+
+                    if (sum !== 100) {
+                        e.preventDefault();
+                        alert('가중치 합계가 100%가 되어야 합니다. 현재: ' + sum + '%');
+                        return false;
+                    }
+                });
+            }
+        });
+        </script>
     </div>
 </th:block>
 
