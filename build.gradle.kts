@@ -38,7 +38,12 @@ subprojects {
         compilerOptions {
             freeCompilerArgs.addAll(listOf("-Xjsr305=strict"))
             jvmTarget.set(JvmTarget.JVM_24)
+            javaParameters.set(true)
         }
+    }
+
+    tasks.withType<JavaCompile> {
+        options.encoding = "UTF-8"
     }
 
     configure<JavaPluginExtension> {

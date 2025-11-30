@@ -2,25 +2,34 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <th:block th:replace="~{layout/default :: layout(~{::div})}">
     <div class="row justify-content-center">
-        <div class="col-md-6">
-            <h3 class="mb-3">새 실험 생성</h3>
+        <div class="col-md-8">
+            <h3 class="mb-3" th:text="${experiment.id == null ? '새 실험 생성' : '실험 수정'}">새 실험 생성</h3>
 
-            <form action="/admin/experiments" method="post" class="card p-4 shadow-sm">
+            <form th:action="${experiment.id == null ? '/admin/experiments' : '/admin/experiments/' + experiment.id}"
+                  method="post" class="card p-4 shadow-sm">
 
                 <div class="mb-3">
                     <label class="form-label">실험 Key (영문)</label>
-                    <input type="text" name="key" class="form-control" placeholder="ex) main_banner_test" required>
+                    <input type="text" name="key" class="form-control"
+                           th:value="${experiment.key}"
+                           placeholder="ex) main_banner_test" required>
                     <div class="form-text">코드에서 사용할 고유 식별자입니다.</div>
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label">설명</label>
-                    <textarea name="description" class="form-control" rows="2"></textarea>
+                    <textarea name="description" class="form-control" rows="3"
+                              th:text="${experiment.description}"></textarea>
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label">트래픽 할당 (%)</label>
-                    <input type="number" name="trafficPercent" class="form-control" value="50" min="0" max="100">
+                    <label class="form-label">상태</label>
+                    <select name="status" class="form-select">
+                        <option value="DRAFT" th:selected="${experiment.status?.name() == 'DRAFT'}">DRAFT (작성중)</option>
+                        <option value="ACTIVE" th:selected="${experiment.status?.name() == 'ACTIVE'}">ACTIVE (진행중)</option>
+                        <option value="PAUSED" th:selected="${experiment.status?.name() == 'PAUSED'}">PAUSED (일시중지)</option>
+                        <option value="ENDED" th:selected="${experiment.status?.name() == 'ENDED'}">ENDED (종료)</option>
+                    </select>
                 </div>
 
                 <div class="d-grid gap-2">

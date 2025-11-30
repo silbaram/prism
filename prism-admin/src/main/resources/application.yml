@@ -5,3 +5,14 @@ spring:
     import:
       - classpath:application-infrastructure.yml
       - optional:classpath:application-infrastructure-${spring.profiles.active}.yml
+
+  # HTTP 인코딩 설정
+  web:
+    resources:
+      add-mappings: true
+
+  # Thymeleaf 인코딩 설정
+  thymeleaf:
+    encoding: UTF-8
+    mode: HTML
+    cache: false

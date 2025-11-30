@@ -3,41 +3,119 @@
 <th:block th:replace="~{layout/default :: layout(~{::div})}">
     <div>
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h2>🧪 실험 목록</h2>
+            <h2>실험 목록</h2>
             <a href="/admin/experiments/new" class="btn btn-primary">새 실험 만들기</a>
         </div>
 
+        <!-- 검색 및 필터 -->
+        <div class="card shadow-sm mb-3">
+            <div class="card-body">
+                <form method="get" action="/admin/experiments" class="row g-3">
+                    <div class="col-md-5">
+                        <label class="form-label">실험 Key 검색</label>
+                        <input type="text" name="keyword" class="form-control"
+                               th:value="${keyword}"
+                               placeholder="검색어를 입력하세요">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">상태 필터</label>
+                        <select name="status" class="form-select">
+                            <option value="">전체</option>
+                            <option value="DRAFT" th:selected="${status != null && status.name() == 'DRAFT'}">DRAFT (작성중)</option>
+                            <option value="ACTIVE" th:selected="${status != null && status.name() == 'ACTIVE'}">ACTIVE (진행중)</option>
+                            <option value="PAUSED" th:selected="${status != null && status.name() == 'PAUSED'}">PAUSED (일시중지)</option>
+                            <option value="ENDED" th:selected="${status != null && status.name() == 'ENDED'}">ENDED (종료)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary me-2">검색</button>
+                        <a href="/admin/experiments" class="btn btn-outline-secondary">초기화</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 실험 목록 테이블 -->
         <div class="card shadow-sm">
             <div class="card-body p-0">
                 <table class="table table-hover mb-0">
                     <thead class="table-light">
                         <tr>
-                            <th>ID</th>
+                            <th style="width: 80px;">ID</th>
                             <th>Key</th>
-                            <th>트래픽 (%)</th>
-                            <th>상태</th>
-                            <th>생성일</th>
+                            <th style="width: 150px;">설명</th>
+                            <th style="width: 120px;">상태</th>
+                            <th style="width: 160px;">생성일</th>
+                            <th style="width: 180px;">작업</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr th:each="exp : ${experiments}">
+                        <tr th:each="exp : ${experiments.content}">
                             <td th:text="${exp.id}">1</td>
-                            <td th:text="${exp.key}" class="fw-bold">main_btn_color</td>
+                            <td><strong th:text="${exp.key}">main_btn_color</strong></td>
+                            <td th:text="${exp.description}">설명</td>
                             <td>
-                                <span class="badge bg-info" th:text="${exp.trafficPercent} + '%'">50%</span>
+                                <span th:switch="${exp.status?.name()}">
+                                    <span th:case="'DRAFT'" class="badge bg-secondary">작성중</span>
+                                    <span th:case="'ACTIVE'" class="badge bg-success">진행중</span>
+                                    <span th:case="'PAUSED'" class="badge bg-warning">일시중지</span>
+                                    <span th:case="'ENDED'" class="badge bg-dark">종료</span>
+                                </span>
                             </td>
+                            <td th:text="${#temporals.format(exp.createdAt, 'yyyy-MM-dd HH:mm')}">2024-01-01 10:00</td>
                             <td>
-                                <span th:if="${exp.isActive}" class="badge bg-success">진행중</span>
-                                <span th:unless="${exp.isActive}" class="badge bg-secondary">중지됨</span>
+                                <a th:href="@{/admin/experiments/{id}/edit(id=${exp.id})}"
+                                   class="btn btn-sm btn-outline-primary">수정</a>
+                                <form th:action="@{/admin/experiments/{id}/delete(id=${exp.id})}"
+                                      method="post" style="display: inline;"
+                                      onsubmit="return confirm('정말 삭제하시겠습니까?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">삭제</button>
+                                </form>
                             </td>
-                            <td th:text="${#temporals.format(exp.createdAt, 'yyyy-MM-dd HH:mm')}"></td>
                         </tr>
                         <tr th:if="${experiments.empty}">
-                            <td colspan="5" class="text-center py-4">생성된 실험이 없습니다.</td>
+                            <td colspan="6" class="text-center py-4 text-muted">생성된 실험이 없습니다.</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
+        </div>
+
+        <!-- 페이지네이션 -->
+        <nav th:if="${experiments.totalPages > 1}" class="mt-3">
+            <ul class="pagination justify-content-center">
+                <!-- 이전 페이지 -->
+                <li class="page-item" th:classappend="${experiments.first} ? 'disabled'">
+                    <a class="page-link"
+                       th:href="@{/admin/experiments(page=${experiments.number - 1}, size=${experiments.size}, keyword=${keyword}, status=${status})}">
+                        이전
+                    </a>
+                </li>
+
+                <!-- 페이지 번호 -->
+                <li class="page-item"
+                    th:each="i : ${#numbers.sequence(0, experiments.totalPages - 1)}"
+                    th:classappend="${i == experiments.number} ? 'active'">
+                    <a class="page-link"
+                       th:href="@{/admin/experiments(page=${i}, size=${experiments.size}, keyword=${keyword}, status=${status})}"
+                       th:text="${i + 1}">1</a>
+                </li>
+
+                <!-- 다음 페이지 -->
+                <li class="page-item" th:classappend="${experiments.last} ? 'disabled'">
+                    <a class="page-link"
+                       th:href="@{/admin/experiments(page=${experiments.number + 1}, size=${experiments.size}, keyword=${keyword}, status=${status})}">
+                        다음
+                    </a>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- 페이지 정보 -->
+        <div class="text-center text-muted mt-2" th:if="${!experiments.empty}">
+            전체 <strong th:text="${experiments.totalElements}">0</strong>개 중
+            <strong th:text="${experiments.number * experiments.size + 1}">1</strong>-<strong
+                th:text="${(experiments.number + 1) * experiments.size > experiments.totalElements ? experiments.totalElements : (experiments.number + 1) * experiments.size}">10</strong>개 표시
         </div>
     </div>
 </th:block>
