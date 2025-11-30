@@ -8,13 +8,13 @@ val mockkVersion = "1.13.11"
 plugins {
     id("org.springframework.boot") version "4.0.0" apply false
     id("io.spring.dependency-management") version "1.1.4" apply false
-    kotlin("jvm") version "2.1.0" apply false
-    kotlin("plugin.spring") version "2.1.0" apply false
-    kotlin("plugin.jpa") version "2.1.0" apply false
+    kotlin("jvm") version "2.2.0" apply false
+    kotlin("plugin.spring") version "2.2.0" apply false
+    kotlin("plugin.jpa") version "2.2.0" apply false
 }
 
 allprojects {
-    group = "com.prism"
+    group = "io.github.silbaram.prism"
     version = "0.0.1-SNAPSHOT"
 
     repositories { mavenCentral() }
@@ -37,17 +37,27 @@ subprojects {
     tasks.withType<KotlinCompile> {
         compilerOptions {
             freeCompilerArgs.addAll(listOf("-Xjsr305=strict"))
-            jvmTarget.set(JvmTarget.JVM_21)
+            jvmTarget.set(JvmTarget.JVM_24)
+            javaParameters.set(true)
         }
+    }
+
+    tasks.withType<JavaCompile> {
+        options.encoding = "UTF-8"
     }
 
     configure<JavaPluginExtension> {
         toolchain {
             languageVersion.set(JavaLanguageVersion.of(25))
         }
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_24
+        targetCompatibility = JavaVersion.VERSION_24
     }
 
-    tasks.withType<Test> { useJUnitPlatform() }
+    tasks.withType<Test> {
+        useJUnitPlatform()
+        jvmArgs(
+            "-Dkotest.framework.classpath.scanning.autoscan.disable=true"
+        )
+    }
 }
