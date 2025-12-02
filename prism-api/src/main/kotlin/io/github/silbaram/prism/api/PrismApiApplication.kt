@@ -1,4 +1,4 @@
-package com.prism.api
+package io.github.silbaram.prism.api
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication

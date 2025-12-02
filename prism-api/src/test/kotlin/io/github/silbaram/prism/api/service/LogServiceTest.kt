@@ -1,7 +1,9 @@
-package com.prism.api.service
+package io.github.silbaram.prism.api.service
 
 
 
+import io.github.silbaram.prism.infrastructure.persistence.entities.ConversionLogEntity
+import io.github.silbaram.prism.infrastructure.persistence.entities.ImpressionLogEntity
 import io.github.silbaram.prism.infrastructure.persistence.repository.ConversionLogRepository
 import io.github.silbaram.prism.infrastructure.persistence.repository.ImpressionLogRepository
 import io.kotest.core.spec.style.FunSpec
@@ -30,7 +32,7 @@ class LogServiceTest : FunSpec({
     val logService = LogService(impressionRepository, conversionRepository)
 
     test("노출 로그를 비동기로 적재한다") {
-        val impressionSlot = slot<io.github.silbaram.prism.infrastructure.persistence.entities.ImpressionLogEntity>()
+        val impressionSlot = slot<ImpressionLogEntity>()
         every { impressionRepository.save(capture(impressionSlot)) } answers { impressionSlot.captured }
 
         logService.logImpression("test-exp", "A", "user-1")
@@ -44,7 +46,7 @@ class LogServiceTest : FunSpec({
     }
 
     test("전환 로그를 비동기로 적재한다") {
-        val conversionSlot = slot<io.github.silbaram.prism.infrastructure.persistence.entities.ConversionLogEntity>()
+        val conversionSlot = slot<ConversionLogEntity>()
         every { conversionRepository.save(capture(conversionSlot)) } answers { conversionSlot.captured }
 
         logService.logConversion("test-exp", "user-1", "purchase")

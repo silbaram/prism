@@ -1,5 +1,4 @@
-
-package com.prism.api.service
+package io.github.silbaram.prism.api.service
 
 import com.github.benmanes.caffeine.cache.Caffeine
 import io.github.silbaram.prism.core.model.Experiment
