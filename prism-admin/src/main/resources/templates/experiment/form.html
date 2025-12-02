@@ -279,10 +279,11 @@
                 updateWeightSum();
             }, 100);
 
-            // 폼 제출 전 최종 검증
+            // 폼 제출 전 최종 검증 및 인덱스 재할당
             const form = document.getElementById('experimentForm');
             if (form) {
                 form.addEventListener('submit', function(e) {
+                    // 가중치 검증
                     const weights = document.querySelectorAll('.variant-weight');
                     let sum = 0;
                     weights.forEach(input => {
@@ -294,6 +295,23 @@
                         alert('가중치 합계가 100%가 되어야 합니다. 현재: ' + sum + '%');
                         return false;
                     }
+
+                    // variants의 name 속성에 인덱스 추가
+                    const variantItems = document.querySelectorAll('#variantsContainer .variant-item');
+                    variantItems.forEach((item, index) => {
+                        const nameInput = item.querySelector('input[name="variants[].name"]');
+                        const weightInput = item.querySelector('input[name="variants[].weight"]');
+
+                        if (nameInput) nameInput.name = `variants[${index}].name`;
+                        if (weightInput) weightInput.name = `variants[${index}].weight`;
+                    });
+
+                    // targetingRules의 name 속성에 인덱스 추가
+                    const ruleItems = document.querySelectorAll('#targetingRulesContainer .rule-item');
+                    ruleItems.forEach((item, index) => {
+                        const expressionInput = item.querySelector('input[name="targetingRules[].expression"]');
+                        if (expressionInput) expressionInput.name = `targetingRules[${index}].expression`;
+                    });
                 });
             }
         });

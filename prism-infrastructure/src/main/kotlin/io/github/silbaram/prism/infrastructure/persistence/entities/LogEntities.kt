@@ -33,6 +33,9 @@ class ConversionLogEntity(
     @Column(nullable = false)
     val experimentKey: String,
 
+    @Column(nullable = true)
+    val variant: String? = null,
+
     @Column(nullable = false)
     val userId: String,
 

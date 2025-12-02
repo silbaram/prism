@@ -1,5 +1,4 @@
-
-package com.prism.api.service
+package io.github.silbaram.prism.api.service
 
 import io.github.silbaram.prism.infrastructure.persistence.entities.ConversionLogEntity
 import io.github.silbaram.prism.infrastructure.persistence.entities.ImpressionLogEntity
@@ -28,9 +27,10 @@ class LogService(
 
     @Async
     @Transactional
-    fun logConversion(experimentKey: String, userId: String, eventName: String) {
+    fun logConversion(experimentKey: String, userId: String, eventName: String, variant: String? = null) {
         val conversion = ConversionLogEntity(
             experimentKey = experimentKey,
+            variant = variant,
             userId = userId,
             eventName = eventName
         )

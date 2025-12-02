@@ -18,7 +18,11 @@ class AnalyticsService(
         val conversions = conversionRepository.countConversionsByVariant(experimentKey)
             .associate { (it[0] as String) to (it[1] as Long) }
 
-        val variantStats = impressions.map { (variant, impressionCount) ->
+        // impressions와 conversions의 모든 variant를 수집
+        val allVariants = (impressions.keys + conversions.keys).distinct()
+
+        val variantStats = allVariants.map { variant ->
+            val impressionCount = impressions[variant] ?: 0L
             val conversionCount = conversions[variant] ?: 0L
             val cvr = if (impressionCount > 0) (conversionCount.toDouble() / impressionCount) * 100 else 0.0
 
