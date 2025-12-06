@@ -1,10 +1,9 @@
-import org.gradle.kotlin.dsl.withType
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     kotlin("jvm")
-    `maven-publish`
+    `maven-publish` // Maven 저장소(로컬/원격)로 배포하기 위한 플러그인
 }
 
 group = "io.github.silbaram.prism"
@@ -40,8 +39,19 @@ configure<JavaPluginExtension> {
     }
     sourceCompatibility = JavaVersion.VERSION_24
     targetCompatibility = JavaVersion.VERSION_24
+    
+    // 소스 코드(Source Jar)도 함께 배포하도록 설정 (IDE에서 소스 확인 가능)
+    withSourcesJar()
 }
 
+publishing {
+    publications {
+        // Maven 배포 설정: Java 컴포넌트를 'maven'이라는 이름으로 배포
+        create<MavenPublication>("maven") {
+            from(components["java"])
+        }
+    }
+}
 
 tasks.test {
     useJUnitPlatform()
