@@ -6,7 +6,9 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 data class AssignmentResponse(
     val userId: String,
     val experimentKey: String,
-    val variant: String
+    val variant: String?,
+    val resultCode: String,
+    val resultMessage: String
 )
 
 data class ConversionRequest(

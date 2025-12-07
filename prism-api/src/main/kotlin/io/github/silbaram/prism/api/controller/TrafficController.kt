@@ -1,5 +1,6 @@
 package io.github.silbaram.prism.api.controller
 
+import io.github.silbaram.prism.api.common.ResponseCode
 import io.github.silbaram.prism.api.service.ExperimentCacheService
 import io.github.silbaram.prism.api.service.LogService
 import io.github.silbaram.prism.core.splitter.TrafficSplitter
@@ -22,7 +23,16 @@ class TrafficController(
     ): AssignmentResponse {
         val experiment =
                 experimentCacheService.getExperiment(experimentKey)
-                        ?: throw IllegalArgumentException("Experiment not found or not active")
+
+        if (experiment == null) {
+            return AssignmentResponse(
+                userId = userId,
+                experimentKey = experimentKey,
+                variant = null,
+                resultCode = ResponseCode.EXPERIMENT_NOT_FOUND.code,
+                resultMessage = ResponseCode.EXPERIMENT_NOT_FOUND.message
+            )
+        }
 
         val variant = TrafficSplitter.assign(experiment, userId)
         val variantName = variant?.name ?: "control"
@@ -31,11 +41,19 @@ class TrafficController(
         logService.logImpression(experimentKey, variantName, userId)
 
         return AssignmentResponse(
-                userId = userId,
-                experimentKey = experimentKey,
-                variant = variantName
+            userId = userId,
+            experimentKey = experimentKey,
+            variant = variantName,
+            resultCode = ResponseCode.SUCCESS.code,
+            resultMessage = ResponseCode.SUCCESS.message
         )
     }
 }
 
-data class AssignmentResponse(val userId: String, val experimentKey: String, val variant: String)
+data class AssignmentResponse(
+    val userId: String,
+    val experimentKey: String,
+    val variant: String?,
+    val resultCode: String,
+    val resultMessage: String
+)

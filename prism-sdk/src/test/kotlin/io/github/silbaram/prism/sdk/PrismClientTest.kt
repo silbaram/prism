@@ -29,7 +29,9 @@ class PrismClientTest {
             {
                 "userId": "user123",
                 "experimentKey": "exp-1",
-                "variant": "A"
+                "variant": "A",
+                "resultCode": "0000",
+                "resultMessage": "Success"
             }
         """.trimIndent()
 
@@ -40,10 +42,35 @@ class PrismClientTest {
         assertEquals("user123", response.userId)
         assertEquals("exp-1", response.experimentKey)
         assertEquals("A", response.variant)
+        assertEquals("0000", response.resultCode)
+        assertEquals("Success", response.resultMessage)
 
         val request = mockWebServer.takeRequest()
         assertEquals("/v1/assign?userId=user123&experimentKey=exp-1", request.path)
         assertEquals("GET", request.method)
+    }
+
+    @Test
+    fun `assign should return error code when experiment not found`() {
+        val jsonResponse = """
+            {
+                "userId": "user123",
+                "experimentKey": "invalid-exp",
+                "variant": null,
+                "resultCode": "9999",
+                "resultMessage": "Experiment not found or not active"
+            }
+        """.trimIndent()
+
+        mockWebServer.enqueue(MockResponse().setBody(jsonResponse).setResponseCode(200))
+
+        val response = client.assign("user123", "invalid-exp")
+
+        assertEquals("user123", response.userId)
+        assertEquals("invalid-exp", response.experimentKey)
+        assertEquals(null, response.variant)
+        assertEquals("9999", response.resultCode)
+        assertEquals("Experiment not found or not active", response.resultMessage)
     }
 
     @Test
