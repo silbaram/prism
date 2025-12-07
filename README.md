@@ -4,7 +4,10 @@ Prism은 확장 가능한 A/B 테스트 플랫폼입니다.
 무상태 분배 엔진, 실험 관리 Admin, 고성능 Traffic Serving API로 구성되어 있습니다.
 
 ## 1. 프로젝트 구조
-- **prism-core**: 핵심 도메인 로직 (MurmurHash, TrafficSplitter, Targeting). 순수 Kotlin.
+- **prism-core**: 핵심 도메인 로직 (MurmurHash, TrafficSplitter, Targeting). 순수 Kotlin 라이브러리.
+- **prism-common**: 모듈 간 공유되는 데이터 모델 및 공통 상수 (DTO, Enums).
+- **prism-sdk**: 클라이언트 애플리케이션 연동을 위한 Java/Kotlin 클라이언트 라이브러리.
+- **prism-spring-boot-starter**: Spring Boot 애플리케이션에서 SDK를 쉽게 설정하고 사용할 수 있도록 지원하는 스타터.
 - **prism-admin**: 실험 관리 및 통계 분석 서버 (Spring Boot, JPA).
 - **prism-api**: 트래픽 분배 및 로그 수집 서버 (Spring Boot, Caffeine, Async).
 - **prism-infrastructure**: 데이터베이스 엔티티 및 공통 인프라 설정 (JPA Entities, Schema).
@@ -37,8 +40,10 @@ docker-compose up -d
 
 # 모듈별 테스트 실행
 ./gradlew :prism-core:test
+./gradlew :prism-common:test
 ./gradlew :prism-api:test
 ./gradlew :prism-admin:test
+./gradlew :prism-sdk:test
 ```
 
 ### 애플리케이션 실행
@@ -56,6 +61,18 @@ docker-compose up -d
 - **로그 수집**: 할당 및 전환 로그가 비동기로 DB에 저장됩니다.
 - **통계 분석**: Admin API를 통해 실험별 CVR(전환율)과 승자를 확인합니다.
 
-## 4. 타겟팅 규칙 (SpEL)
+## 4. 클라이언트 연동 (Client Integration)
+Prism은 Java/Kotlin 애플리케이션을 위한 공식 SDK를 제공합니다.
+
+### Gradle 설정
+`prism-spring-boot-starter`를 사용하면 별도의 설정 없이 Spring 환경에서 쉽게 사용할 수 있습니다.
+
+```kotlin
+implementation("io.github.silbaram.prism:prism-spring-boot-starter:0.0.1-SNAPSHOT")
+```
+
+더 자세한 사용법은 [prism-spring-boot-starter README](prism-spring-boot-starter/README.md) 또는 [prism-sdk README](prism-sdk/README.md)를 참고하세요.
+
+## 5. 타겟팅 규칙 (SpEL)
 `prism-core`는 Spring Expression Language (SpEL)를 지원합니다.
 예: `age >= 20`, `os == 'iOS'`, `appVersion > '1.5'`
