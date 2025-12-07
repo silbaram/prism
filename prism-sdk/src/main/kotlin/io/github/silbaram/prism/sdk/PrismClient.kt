@@ -1,7 +1,9 @@
 package io.github.silbaram.prism.sdk
 
+import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import io.github.silbaram.prism.common.rest.dto.conversion.ConversionRequest
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -26,7 +28,7 @@ class PrismClient(
             .build()
 
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
-        
+
         if (response.statusCode() != 200) {
             throw RuntimeException("Failed to assign variant: ${response.statusCode()} - ${response.body()}")
         }

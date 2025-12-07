@@ -1,6 +1,7 @@
 package io.github.silbaram.prism.api.controller
 
-import io.github.silbaram.prism.api.common.ResponseCode
+import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
+import io.github.silbaram.prism.common.rest.ResponseCode
 import io.github.silbaram.prism.api.service.ExperimentCacheService
 import io.github.silbaram.prism.api.service.LogService
 import io.github.silbaram.prism.core.splitter.TrafficSplitter
@@ -22,20 +23,16 @@ class TrafficController(
             @RequestParam experimentKey: String
     ): AssignmentResponse {
         val experiment =
-                experimentCacheService.getExperiment(experimentKey)
-
-        if (experiment == null) {
-            return AssignmentResponse(
+            experimentCacheService.getExperiment(experimentKey) ?: return AssignmentResponse(
                 userId = userId,
                 experimentKey = experimentKey,
                 variant = null,
                 resultCode = ResponseCode.EXPERIMENT_NOT_FOUND.code,
                 resultMessage = ResponseCode.EXPERIMENT_NOT_FOUND.message
             )
-        }
 
         val variant = TrafficSplitter.assign(experiment, userId)
-        val variantName = variant?.name ?: "control"
+        val variantName = variant?.name ?: ""
 
         // Impression 로그 기록
         logService.logImpression(experimentKey, variantName, userId)
@@ -50,10 +47,4 @@ class TrafficController(
     }
 }
 
-data class AssignmentResponse(
-    val userId: String,
-    val experimentKey: String,
-    val variant: String?,
-    val resultCode: String,
-    val resultMessage: String
-)
+

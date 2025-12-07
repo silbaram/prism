@@ -1,4 +1,4 @@
-package io.github.silbaram.prism.sdk
+package io.github.silbaram.prism.common.rest.dto.assign
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 
@@ -9,10 +9,4 @@ data class AssignmentResponse(
     val variant: String?,
     val resultCode: String,
     val resultMessage: String
-)
-
-data class ConversionRequest(
-    val experimentKey: String,
-    val userId: String,
-    val eventName: String
 )
