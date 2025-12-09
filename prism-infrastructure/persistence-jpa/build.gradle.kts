@@ -5,9 +5,12 @@ plugins {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
-    implementation("org.springframework:spring-expression")
-    implementation("org.springframework:spring-context")
+    api(project(":prism-core"))
+
+    api("org.springframework.boot:spring-boot-starter-data-jpa")
+    api("org.springframework.boot:spring-boot-autoconfigure")
+
+    api("com.mysql:mysql-connector-j")
 }
 
 tasks.bootJar {

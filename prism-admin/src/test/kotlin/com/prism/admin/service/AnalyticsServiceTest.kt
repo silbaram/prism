@@ -2,8 +2,8 @@ package com.prism.admin.service
 
 
 
-import io.github.silbaram.prism.infrastructure.persistence.repository.ImpressionLogRepository
-import io.github.silbaram.prism.infrastructure.persistence.repository.ConversionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ImpressionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ConversionLogRepository
 import io.github.silbaram.prism.admin.service.AnalyticsService
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe

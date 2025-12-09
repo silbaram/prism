@@ -1,4 +1,4 @@
-package io.github.silbaram.prism.infrastructure.persistence.entities
+package io.github.silbaram.prism.infrastructure.persistence.jpa.entities
 
 import jakarta.persistence.*
 

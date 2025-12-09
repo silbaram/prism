@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   mysql:
@@ -10,5 +10,5 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - ../prism-infrastructure/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ../prism-infrastructure/persistence-jpa/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci

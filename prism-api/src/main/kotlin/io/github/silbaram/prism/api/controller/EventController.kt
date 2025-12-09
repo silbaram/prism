@@ -2,7 +2,7 @@ package io.github.silbaram.prism.api.controller
 
 import io.github.silbaram.prism.api.service.LogService
 import io.github.silbaram.prism.common.rest.dto.conversion.ConversionRequest
-import io.github.silbaram.prism.infrastructure.persistence.repository.ImpressionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ImpressionLogRepository
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping

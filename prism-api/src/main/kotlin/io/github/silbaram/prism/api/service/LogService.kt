@@ -1,9 +1,9 @@
 package io.github.silbaram.prism.api.service
 
-import io.github.silbaram.prism.infrastructure.persistence.entities.ConversionLogEntity
-import io.github.silbaram.prism.infrastructure.persistence.entities.ImpressionLogEntity
-import io.github.silbaram.prism.infrastructure.persistence.repository.ConversionLogRepository
-import io.github.silbaram.prism.infrastructure.persistence.repository.ImpressionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ConversionLogEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ImpressionLogEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ConversionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ImpressionLogRepository
 import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional

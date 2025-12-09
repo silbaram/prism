@@ -1,7 +1,7 @@
 package io.github.silbaram.prism.admin.service
 
-import io.github.silbaram.prism.infrastructure.persistence.repository.ImpressionLogRepository
-import io.github.silbaram.prism.infrastructure.persistence.repository.ConversionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ImpressionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ConversionLogRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 

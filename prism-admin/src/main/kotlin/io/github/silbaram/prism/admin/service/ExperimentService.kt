@@ -5,11 +5,11 @@ import io.github.silbaram.prism.admin.exception.ExperimentNotFoundException
 import io.github.silbaram.prism.admin.exception.InvalidVariantWeightException
 import io.github.silbaram.prism.admin.service.dto.ExperimentCreateDto
 import io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto
-import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
-import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
-import io.github.silbaram.prism.infrastructure.persistence.entities.TargetingRuleEntity
-import io.github.silbaram.prism.infrastructure.persistence.entities.VariantEntity
-import io.github.silbaram.prism.infrastructure.persistence.repository.ExperimentRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.TargetingRuleEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.VariantEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentRepository
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
