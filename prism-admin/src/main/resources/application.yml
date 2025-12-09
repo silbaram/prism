@@ -6,8 +6,7 @@ spring:
     active: local
   config:
     import:
-      - classpath:application-infrastructure.yml
-      - optional:classpath:application-infrastructure-${spring.profiles.active}.yml
+      - classpath:application-infrastructure-jpa.yml
 
   # HTTP 인코딩 설정
   web:

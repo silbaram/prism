@@ -7,8 +7,8 @@ import io.github.silbaram.prism.admin.service.dto.ExperimentCreateDto
 import io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto
 import io.github.silbaram.prism.admin.service.dto.TargetingRuleDto
 import io.github.silbaram.prism.admin.service.dto.VariantDto
-import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
-import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Controller

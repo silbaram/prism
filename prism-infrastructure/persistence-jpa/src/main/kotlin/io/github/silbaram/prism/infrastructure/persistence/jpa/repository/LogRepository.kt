@@ -1,7 +1,7 @@
-package io.github.silbaram.prism.infrastructure.persistence.repository
+package io.github.silbaram.prism.infrastructure.persistence.jpa.repository
 
-import io.github.silbaram.prism.infrastructure.persistence.entities.ConversionLogEntity
-import io.github.silbaram.prism.infrastructure.persistence.entities.ImpressionLogEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ConversionLogEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ImpressionLogEntity
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.stereotype.Repository

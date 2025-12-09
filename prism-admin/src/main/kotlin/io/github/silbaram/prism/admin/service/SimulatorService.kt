@@ -5,7 +5,7 @@ import io.github.silbaram.prism.core.model.Variant
 import io.github.silbaram.prism.core.splitter.TrafficSplitter
 import io.github.silbaram.prism.core.targeting.UserContext
 import io.github.silbaram.prism.admin.exception.ExperimentNotFoundException
-import io.github.silbaram.prism.infrastructure.persistence.repository.ExperimentRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 

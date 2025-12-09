@@ -4,9 +4,9 @@ import io.github.silbaram.prism.admin.exception.InvalidVariantWeightException
 import io.github.silbaram.prism.admin.service.ExperimentService
 import io.github.silbaram.prism.admin.service.dto.ExperimentCreateDto
 import io.github.silbaram.prism.admin.service.dto.VariantDto
-import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
-import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
-import io.github.silbaram.prism.infrastructure.persistence.repository.ExperimentRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentRepository
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly

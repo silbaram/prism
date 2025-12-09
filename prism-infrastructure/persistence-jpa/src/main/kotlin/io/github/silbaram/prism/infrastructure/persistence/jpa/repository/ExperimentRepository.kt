@@ -1,7 +1,7 @@
-package io.github.silbaram.prism.infrastructure.persistence.repository
+package io.github.silbaram.prism.infrastructure.persistence.jpa.repository
 
-import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentEntity
-import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository

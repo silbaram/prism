@@ -19,7 +19,7 @@ data class ExperimentCreateDto(
 data class ExperimentUpdateDto(
     val key: String,
     val description: String,
-    val status: io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus,
+    val status: io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus,
     val variants: List<VariantDto>,
     val targetingRules: List<TargetingRuleDto> = emptyList()
 )

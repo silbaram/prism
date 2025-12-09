@@ -1,6 +1,6 @@
 package io.github.silbaram.prism.admin.controller.dto
 
-import io.github.silbaram.prism.infrastructure.persistence.entities.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
 
 data class ExperimentFormDto(
     val key: String = "",

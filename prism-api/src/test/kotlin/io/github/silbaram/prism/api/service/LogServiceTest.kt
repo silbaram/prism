@@ -2,10 +2,10 @@ package io.github.silbaram.prism.api.service
 
 
 
-import io.github.silbaram.prism.infrastructure.persistence.entities.ConversionLogEntity
-import io.github.silbaram.prism.infrastructure.persistence.entities.ImpressionLogEntity
-import io.github.silbaram.prism.infrastructure.persistence.repository.ConversionLogRepository
-import io.github.silbaram.prism.infrastructure.persistence.repository.ImpressionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ConversionLogEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ImpressionLogEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ConversionLogRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ImpressionLogRepository
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
