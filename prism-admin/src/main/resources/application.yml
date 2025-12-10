@@ -2,8 +2,6 @@ server:
   port: 8070
 
 spring:
-  profiles:
-    active: local
   config:
     import:
       - classpath:application-infrastructure-jpa.yml
