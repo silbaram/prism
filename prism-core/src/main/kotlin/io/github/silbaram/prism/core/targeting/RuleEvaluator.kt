@@ -97,8 +97,7 @@ object RuleEvaluator {
             expression.getValue(evaluationContext, Boolean::class.java) ?: false
         } catch (e: Exception) {
             // 에러 발생 시 false 반환 (안전한 실패)
-            // TODO: 로깅 라이브러리 추가 시 에러 로그 남기기
-            // 디버깅 정보: condition=${rule.condition}, context=${context.attributes}, error=${e.message}
+            // 라이브러리 사용자(prism-api, prism-admin)가 필요 시 로깅 처리
             false
         }
     }
