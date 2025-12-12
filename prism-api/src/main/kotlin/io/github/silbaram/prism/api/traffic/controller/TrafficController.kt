@@ -1,7 +1,7 @@
-package io.github.silbaram.prism.api.controller
+package io.github.silbaram.prism.api.traffic.controller
 
-import io.github.silbaram.prism.api.application.port.`in`.AssignVariantCommand
-import io.github.silbaram.prism.api.application.port.`in`.AssignVariantUseCase
+import io.github.silbaram.prism.api.traffic.application.port.`in`.AssignVariantCommand
+import io.github.silbaram.prism.api.traffic.application.port.`in`.AssignVariantUseCase
 import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
 import io.github.silbaram.prism.common.rest.ResponseCode
 import org.springframework.web.bind.annotation.GetMapping
@@ -83,5 +83,3 @@ class TrafficController(
         }
     }
 }
-
-

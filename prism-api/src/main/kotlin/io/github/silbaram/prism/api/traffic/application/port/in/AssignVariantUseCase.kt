@@ -1,4 +1,4 @@
-package io.github.silbaram.prism.api.application.port.`in`
+package io.github.silbaram.prism.api.traffic.application.port.`in`
 
 /**
  * 변형 할당 유스케이스 (Inbound Port).

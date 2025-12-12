@@ -1,10 +1,10 @@
-package io.github.silbaram.prism.api.application.service
+package io.github.silbaram.prism.api.traffic.application.service
 
-import io.github.silbaram.prism.api.application.port.`in`.AssignVariantCommand
-import io.github.silbaram.prism.api.application.port.`in`.AssignVariantResult
-import io.github.silbaram.prism.api.application.port.`in`.AssignVariantUseCase
-import io.github.silbaram.prism.api.application.port.out.LoadExperimentPort
-import io.github.silbaram.prism.api.application.port.out.RecordImpressionPort
+import io.github.silbaram.prism.api.traffic.application.port.`in`.AssignVariantCommand
+import io.github.silbaram.prism.api.traffic.application.port.`in`.AssignVariantResult
+import io.github.silbaram.prism.api.traffic.application.port.`in`.AssignVariantUseCase
+import io.github.silbaram.prism.api.traffic.application.port.out.LoadExperimentPort
+import io.github.silbaram.prism.api.traffic.application.port.out.RecordImpressionPort
 import io.github.silbaram.prism.core.splitter.TrafficSplitter
 import org.springframework.stereotype.Service
 
