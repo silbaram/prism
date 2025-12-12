@@ -73,6 +73,125 @@ implementation("io.github.silbaram.prism:prism-spring-boot-starter:0.0.1-SNAPSHO
 
 더 자세한 사용법은 [prism-spring-boot-starter README](prism-spring-boot-starter/README.md) 또는 [prism-sdk README](prism-sdk/README.md)를 참고하세요.
 
+### 어노테이션 기반 사용법 (Annotation-based Usage)
+Spring Boot 환경에서는 `@PrismExperiment` 어노테이션을 사용하여 A/B 테스트를 간편하게 적용할 수 있습니다.
+
+#### 1. 의존성 추가
+```kotlin
+repositories {
+    mavenLocal()  // 로컬에 배포한 경우
+    mavenCentral()
+}
+
+dependencies {
+    implementation("io.github.silbaram.prism:prism-spring-boot-starter:0.0.1-SNAPSHOT")
+}
+```
+
+#### 2. 설정 파일 작성 (application.yml)
+```yaml
+prism:
+  api:
+    base-url: http://localhost:8081  # Prism API 서버 주소
+```
+
+#### 3. 서비스에서 어노테이션 사용
+```kotlin
+import io.github.silbaram.prism.starter.annotation.PrismExperiment
+import io.github.silbaram.prism.starter.annotation.PrismUserId
+import io.github.silbaram.prism.starter.aop.PrismContext
+import org.springframework.stereotype.Service
+
+@Service
+class ProductService {
+
+    @PrismExperiment(
+        experimentKey = "discount_ab_test",
+        defaultVariant = "A"
+    )
+    fun calculateDiscount(@PrismUserId userId: String, amount: Int): Int {
+        // PrismContext에서 할당된 variant 조회
+        val variant = PrismContext.getCurrentVariant()
+
+        return when (variant) {
+            "A" -> (amount * 0.9).toInt()  // 10% 할인
+            "B" -> (amount * 0.8).toInt()  // 20% 할인
+            else -> amount                  // 할인 없음
+        }
+    }
+}
+```
+
+#### 4. 어노테이션 설명
+
+**@PrismExperiment**
+- `experimentKey`: Prism 서버에 등록된 실험의 고유 키
+- `defaultVariant`: API 호출 실패 시 사용할 기본 variant
+- `userIdParam`: userId를 추출할 파라미터 이름 (기본값: "userId")
+
+**@PrismUserId**
+- 메소드 파라미터에 붙여서 어떤 파라미터가 userId인지 명시합니다
+- 파라미터 이름이 "userId"가 아닌 경우 필수입니다
+
+**PrismContext.getCurrentVariant()**
+- 현재 할당된 variant를 가져옵니다
+- `@PrismExperiment`가 붙은 메소드 내부에서만 사용 가능합니다
+
+#### 5. userId 파라미터 전달 방법
+
+**방법 1: @PrismUserId 어노테이션 사용 (권장)**
+```kotlin
+@PrismExperiment(experimentKey = "my_experiment", defaultVariant = "A")
+fun doSomething(@PrismUserId customId: String, otherParam: Int) {
+    // ...
+}
+```
+
+**방법 2: 파라미터 이름으로 지정**
+```kotlin
+@PrismExperiment(
+    experimentKey = "my_experiment",
+    defaultVariant = "A",
+    userIdParam = "customId"  // 파라미터 이름 명시
+)
+fun doSomething(customId: String, otherParam: Int) {
+    // ...
+}
+```
+
+**방법 3: 기본 파라미터 이름 사용**
+```kotlin
+@PrismExperiment(experimentKey = "my_experiment", defaultVariant = "A")
+fun doSomething(userId: String, otherParam: Int) {
+    // 파라미터 이름이 "userId"면 자동으로 인식
+}
+```
+
+#### 6. 실제 사용 예제 (Controller)
+```kotlin
+@RestController
+@RequestMapping("/api/products")
+class ProductController(
+    private val productService: ProductService
+) {
+
+    @GetMapping("/{productId}/discount")
+    fun getDiscount(
+        @PathVariable productId: String,
+        @RequestParam userId: String
+    ): DiscountResponse {
+        val originalPrice = 10000
+        val discountedPrice = productService.calculateDiscount(userId, originalPrice)
+
+        return DiscountResponse(
+            originalPrice = originalPrice,
+            discountedPrice = discountedPrice,
+            discountRate = ((originalPrice - discountedPrice) * 100 / originalPrice)
+        )
+    }
+}
+```
+
 ## 5. 타겟팅 규칙 (SpEL)
 `prism-core`는 Spring Expression Language (SpEL)를 지원합니다.
 예: `age >= 20`, `os == 'iOS'`, `appVersion > '1.5'`
