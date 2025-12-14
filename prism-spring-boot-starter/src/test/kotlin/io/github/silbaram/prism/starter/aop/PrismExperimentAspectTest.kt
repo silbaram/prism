@@ -1,6 +1,7 @@
 package io.github.silbaram.prism.starter.aop
 
 import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
+import io.github.silbaram.prism.common.rest.ResponseCode
 import io.github.silbaram.prism.sdk.PrismClient
 import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.annotation.PrismExperiment
@@ -49,7 +50,7 @@ class PrismExperimentAspectTest {
                 userId = userId,
                 experimentKey = experimentKey,
                 variant = expectedVariant,
-                resultCode = "0000",
+                resultCode = ResponseCode.SUCCESS.code,
                 resultMessage = "Assignment successful"
             ))
 
@@ -74,7 +75,7 @@ class PrismExperimentAspectTest {
                 userId = userId,
                 experimentKey = experimentKey,
                 variant = expectedVariant,
-                resultCode = "0000",
+                resultCode = ResponseCode.SUCCESS.code,
                 resultMessage = "Assignment successful"
             ))
 

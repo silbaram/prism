@@ -1,5 +1,6 @@
 package io.github.silbaram.prism.sdk
 
+import io.github.silbaram.prism.common.rest.ResponseCode
 import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
 import org.slf4j.LoggerFactory
 
@@ -58,10 +59,8 @@ data class AssignmentOutcome(
     val resultMessage: String
 ) {
     companion object {
-        private const val SUCCESS_CODE = "0000"
-
         fun from(response: AssignmentResponse): AssignmentOutcome {
-            val assigned = response.variant != null && response.resultCode == SUCCESS_CODE
+            val assigned = response.variant != null && response.resultCode == ResponseCode.SUCCESS.code
             return AssignmentOutcome(
                 userId = response.userId,
                 experimentKey = response.experimentKey,
@@ -78,7 +77,7 @@ data class AssignmentOutcome(
                 experimentKey = experimentKey,
                 variant = null,
                 assigned = false,
-                resultCode = "ERROR",
+                resultCode = ResponseCode.GENERAL_ERROR.code,
                 resultMessage = message
             )
         }
