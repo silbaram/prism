@@ -189,7 +189,7 @@ class PrismClient(
      */
     private fun maskUserId(userId: String): String {
         return if (userId.length > 4) {
-            "${userId.substring(0, 2)}***${userId.substring(userId.length - 2)}"
+            "${userId.take(2)}***${userId.substring(userId.length - 2)}"
         } else {
             "***"
         }

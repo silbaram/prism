@@ -8,7 +8,7 @@ package io.github.silbaram.prism.starter.annotation
  *
  * 사용 예시:
  * ```kotlin
- * @PrismExperiment(experimentKey = "discount_logic", defaultVariant = "A")
+ * @PrismExperiment(experimentKey = "discount_logic")
  * fun calculateDiscount(@PrismUserId userId: String, amount: Int): Int {
  *     // variant에 따라 다른 할인 로직 실행
  *     return amount
@@ -16,13 +16,11 @@ package io.github.silbaram.prism.starter.annotation
  * ```
  *
  * @property experimentKey Prism 실험의 고유 키
- * @property defaultVariant 실험 조회 실패 시 사용할 기본 variant
  * @property userIdParam userId를 추출할 파라미터 이름 (기본값: "userId")
  */
 @Target(AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.RUNTIME)
 annotation class PrismExperiment(
     val experimentKey: String,
-    val defaultVariant: String,
     val userIdParam: String = "userId"
 )

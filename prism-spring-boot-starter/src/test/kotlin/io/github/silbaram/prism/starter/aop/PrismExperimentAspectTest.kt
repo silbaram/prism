@@ -46,7 +46,7 @@ class PrismExperimentAspectTest {
                 userId = userId,
                 experimentKey = experimentKey,
                 variant = expectedVariant,
-                resultCode = "SUCCESS",
+                resultCode = "0000",
                 resultMessage = "Assignment successful"
             ))
 
@@ -71,7 +71,7 @@ class PrismExperimentAspectTest {
                 userId = userId,
                 experimentKey = experimentKey,
                 variant = expectedVariant,
-                resultCode = "SUCCESS",
+                resultCode = "0000",
                 resultMessage = "Assignment successful"
             ))
 
@@ -85,7 +85,7 @@ class PrismExperimentAspectTest {
     }
 
     @Test
-    fun `Prism 서버 오류 시 defaultVariant 사용 테스트`() {
+    fun `Prism 서버 오류 시 variant null 처리 테스트`() {
         // given
         val userId = "user789"
         val experimentKey = "discount_test"
@@ -99,19 +99,30 @@ class PrismExperimentAspectTest {
         // then
         verify(prismClient).assign(userId, experimentKey)
         assertNotNull(result)
-        assertEquals(900, result) // defaultVariant = "A" = 10% 할인
+        assertEquals(1000, result) // variant=null → 할인 없음
+    }
+
+    @Test
+    fun `userId 없으면 할당 스킵 후 예외 없이 진행`() {
+        // when
+        val result = testService.calculateDiscountWithNullableUserId(null, 1000)
+
+        // then
+        verify(prismClient, never()).assign(anyString(), anyString())
+        assertEquals(1000, result) // userId null → 할인 없음
     }
 
     // 테스트용 서비스 인터페이스
     interface TestService {
         fun calculateDiscountWithAnnotation(userId: String, amount: Int): Int
         fun calculateDiscountWithParamName(userId: String, amount: Int): Int
+        fun calculateDiscountWithNullableUserId(userId: String?, amount: Int): Int
     }
 
     // 테스트용 서비스 구현
     class TestServiceImpl : TestService {
 
-        @PrismExperiment(experimentKey = "discount_test", defaultVariant = "A")
+        @PrismExperiment(experimentKey = "discount_test")
         override fun calculateDiscountWithAnnotation(
             @PrismUserId userId: String,
             amount: Int
@@ -124,13 +135,23 @@ class PrismExperimentAspectTest {
             }
         }
 
-        @PrismExperiment(experimentKey = "discount_test", defaultVariant = "A", userIdParam = "userId")
+        @PrismExperiment(experimentKey = "discount_test", userIdParam = "userId")
         override fun calculateDiscountWithParamName(userId: String, amount: Int): Int {
             val variant = PrismContext.getCurrentVariant()
             return when (variant) {
                 "A" -> (amount * 0.9).toInt()  // 10% 할인
                 "B" -> (amount * 0.8).toInt()  // 20% 할인
                 else -> amount
+            }
+        }
+
+        @PrismExperiment(experimentKey = "discount_test")
+        override fun calculateDiscountWithNullableUserId(userId: String?, amount: Int): Int {
+            val variant = PrismContext.getCurrentVariant()
+            return when (variant) {
+                "A" -> (amount * 0.9).toInt()
+                "B" -> (amount * 0.8).toInt()
+                else -> amount // userId 없을 때 null → 할인 없음
             }
         }
     }
