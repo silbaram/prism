@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController
  * 웹 계층과 애플리케이션 계층을 연결하는 어댑터 역할만 수행합니다.
  */
 @RestController
-@RequestMapping("/v1/events")
+@RequestMapping("/v1/conversions")
 class ConversionController(
     private val trackConversionUseCase: TrackConversionUseCase
 ) {
@@ -36,7 +36,7 @@ class ConversionController(
      *
      * ## API 명세
      * - Method: POST
-     * - Path: /v1/events/conversion
+     * - Path: /v1/conversions
      * - Body: ConversionRequest
      *
      * ## 처리 흐름
@@ -47,7 +47,7 @@ class ConversionController(
      * @param request 전환 이벤트 요청
      * @return 전환 추적 결과
      */
-    @PostMapping("/conversion")
+    @PostMapping
     fun trackConversion(@RequestBody request: ConversionRequest): ConversionResponse {
         // 1단계: Command 생성
         val command = TrackConversionCommand(
