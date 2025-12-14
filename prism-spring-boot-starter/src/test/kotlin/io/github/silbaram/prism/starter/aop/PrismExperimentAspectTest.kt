@@ -2,6 +2,7 @@ package io.github.silbaram.prism.starter.aop
 
 import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
 import io.github.silbaram.prism.sdk.PrismClient
+import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.annotation.PrismExperiment
 import io.github.silbaram.prism.starter.annotation.PrismUserId
 import org.junit.jupiter.api.AfterEach
@@ -15,13 +16,15 @@ import org.springframework.aop.aspectj.annotation.AspectJProxyFactory
 class PrismExperimentAspectTest {
 
     private lateinit var prismClient: PrismClient
+    private lateinit var prismExperimentClient: PrismExperimentClient
     private lateinit var aspect: PrismExperimentAspect
     private lateinit var testService: TestService
 
     @BeforeEach
     fun setUp() {
         prismClient = mock(PrismClient::class.java)
-        aspect = PrismExperimentAspect(prismClient)
+        prismExperimentClient = PrismExperimentClient(prismClient)
+        aspect = PrismExperimentAspect(prismExperimentClient)
 
         // AOP 프록시 설정
         val factory = AspectJProxyFactory(TestServiceImpl())

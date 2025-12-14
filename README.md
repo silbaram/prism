@@ -19,3 +19,4 @@ Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 고성능 Servi
 ## 문서
 - SDK 상세 사용법: `prism-sdk/README.md`
 - Spring Boot 통합 가이드: `prism-spring-boot-starter/README.md`
+- 빌드 시 `PrismClient.trackConversion` 직접 호출을 감지해 실패합니다. 통계 오염 방지를 위해 `PrismExperimentClient.trackConversionIfAssigned` 등 안전 래퍼를 사용하세요.

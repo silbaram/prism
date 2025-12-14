@@ -1,6 +1,7 @@
 package io.github.silbaram.prism.starter.aop
 
-import io.github.silbaram.prism.sdk.PrismClient
+import io.github.silbaram.prism.sdk.AssignmentOutcome
+import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.annotation.PrismExperiment
 import io.github.silbaram.prism.starter.annotation.PrismUserId
 import org.aspectj.lang.ProceedingJoinPoint
@@ -17,7 +18,7 @@ import org.slf4j.LoggerFactory
  */
 @Aspect
 class PrismExperimentAspect(
-    private val prismClient: PrismClient
+    private val prismExperimentClient: PrismExperimentClient
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -40,27 +41,28 @@ class PrismExperimentAspect(
                 }
 
             // 2. Prism 서버에서 variant 조회 및 할당 성공 여부 확인
-            val (variant: String?, wasActualAssignment: Boolean) = try {
-                val response = prismClient.assign(userId, prismExperiment.experimentKey)
-
-                // 성공 조건: variant가 null이 아니고, resultCode가 "0000" (SUCCESS)
-                if (response.variant != null && response.resultCode == "0000") {
-                    // 실제로 서버에서 할당받음 → 통계에 포함되어야 함
-                    Pair(response.variant!!, true)
-                } else {
-                    // API 호출은 성공했지만 실험이 없거나 비활성화 상태
-                    logger.warn(
-                        "실험 '${prismExperiment.experimentKey}' 할당 실패 (resultCode=${response.resultCode})"
-                    )
-                    Pair(null, false)
-                }
+            val outcome = try {
+                prismExperimentClient.assign(userId, prismExperiment.experimentKey)
             } catch (e: Exception) {
-                // 네트워크 오류 등으로 API 호출 실패
+                // 예외 발생 시 안전하게 실패 처리
                 logger.warn(
                     "실험 '${prismExperiment.experimentKey}' variant 조회 실패: ${e.message}"
                 )
-                Pair(null, false)
+                AssignmentOutcome.failed(
+                    userId = userId,
+                    experimentKey = prismExperiment.experimentKey,
+                    message = e.message ?: "Unknown error"
+                )
             }
+
+            if (!outcome.assigned) {
+                logger.warn(
+                    "실험 '${prismExperiment.experimentKey}' 할당 실패 (resultCode=${outcome.resultCode}, message=${outcome.resultMessage})"
+                )
+            }
+
+            val variant = if (outcome.assigned) outcome.variant else null
+            val wasActualAssignment = outcome.assigned
 
             // 3. PrismContext에 variant 및 할당 성공 여부 저장
             PrismContext.setCurrentVariant(variant, wasActualAssignment)

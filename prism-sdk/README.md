@@ -49,3 +49,21 @@ SDK 단위 테스트 실행:
 ```bash
 ./gradlew :prism-sdk:test
 ```
+
+## 안전 래퍼 사용하기 (전환 오염 방지)
+`PrismExperimentClient`는 `PrismClient`를 감싸서 할당 성공 여부(`assigned`)를 함께 제공합니다.
+```kotlin
+import io.github.silbaram.prism.sdk.PrismClient
+import io.github.silbaram.prism.sdk.PrismExperimentClient
+
+val prismClient = PrismClient("http://localhost:8081")
+val experimentClient = PrismExperimentClient(prismClient)
+
+val outcome = experimentClient.assign("user-123", "exp-1")
+if (outcome.assigned) {
+    // 할당된 경우에만 전환 기록 → 통계 오염 방지
+    experimentClient.trackConversionIfAssigned(outcome, "purchase_click")
+} else {
+    // 실패 시 로직 기본값 처리 (예: control)
+}
+```

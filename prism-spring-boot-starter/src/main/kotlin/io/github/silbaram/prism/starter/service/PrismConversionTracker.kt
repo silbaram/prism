@@ -1,9 +1,8 @@
 package io.github.silbaram.prism.starter.service
 
-import io.github.silbaram.prism.sdk.PrismClient
+import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.aop.PrismContext
 import org.slf4j.LoggerFactory
-import org.springframework.stereotype.Component
 
 /**
  * 안전한 전환 추적을 제공하는 래퍼 컴포넌트입니다.
@@ -47,9 +46,8 @@ import org.springframework.stereotype.Component
  *   - ✅ 통계 정확 유지
  * ```
  */
-@Component
 class PrismConversionTracker(
-    private val prismClient: PrismClient
+    private val prismExperimentClient: PrismExperimentClient
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -72,7 +70,7 @@ class PrismConversionTracker(
     fun trackConversionSafe(userId: String, experimentKey: String, eventName: String) {
         if (PrismContext.wasActuallyAssigned()) {
             // 실제로 할당받은 경우 → 전환 추적
-            prismClient.trackConversion(userId, experimentKey, eventName)
+            prismExperimentClient.trackConversion(userId, experimentKey, eventName)
             logger.debug("전환 추적 성공: userId=$userId, experimentKey=$experimentKey, eventName=$eventName")
         } else {
             // 할당 실패 → 전환 추적 스킵
@@ -102,6 +100,6 @@ class PrismConversionTracker(
             "Unsafe conversion tracking (통계 오염 가능): " +
             "userId=$userId, experimentKey=$experimentKey, eventName=$eventName"
         )
-        prismClient.trackConversion(userId, experimentKey, eventName)
+        prismExperimentClient.trackConversion(userId, experimentKey, eventName)
     }
 }
