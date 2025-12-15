@@ -1,5 +1,6 @@
 package io.github.silbaram.prism.sdk
 
+import io.github.silbaram.prism.common.rest.ResponseCode
 import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
@@ -39,8 +40,6 @@ class PrismClient(
         private const val HTTP_OK = 200
 
         // 응답 코드
-        private const val SUCCESS_CODE = "0000"
-        private const val ERROR_CODE = "9999"
     }
 
     /**
@@ -189,7 +188,7 @@ class PrismClient(
      */
     private fun maskUserId(userId: String): String {
         return if (userId.length > 4) {
-            "${userId.substring(0, 2)}***${userId.substring(userId.length - 2)}"
+            "${userId.take(2)}***${userId.substring(userId.length - 2)}"
         } else {
             "***"
         }
@@ -212,7 +211,7 @@ class PrismClient(
             userId = userId,
             experimentKey = experimentKey,
             variant = null,
-            resultCode = ERROR_CODE,
+            resultCode = ResponseCode.GENERAL_ERROR.code,
             resultMessage = "Assignment failed: $errorMessage"
         )
     }

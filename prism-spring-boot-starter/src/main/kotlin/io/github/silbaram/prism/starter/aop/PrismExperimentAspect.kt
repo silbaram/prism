@@ -1,6 +1,7 @@
 package io.github.silbaram.prism.starter.aop
 
-import io.github.silbaram.prism.sdk.PrismClient
+import io.github.silbaram.prism.sdk.AssignmentOutcome
+import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.annotation.PrismExperiment
 import io.github.silbaram.prism.starter.annotation.PrismUserId
 import org.aspectj.lang.ProceedingJoinPoint
@@ -17,7 +18,7 @@ import org.slf4j.LoggerFactory
  */
 @Aspect
 class PrismExperimentAspect(
-    private val prismClient: PrismClient
+    private val prismExperimentClient: PrismExperimentClient
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -29,25 +30,42 @@ class PrismExperimentAspect(
         return try {
             // 1. userId 추출
             val userId = extractUserId(joinPoint, prismExperiment)
-                ?: throw IllegalArgumentException(
-                    "userId를 찾을 수 없습니다. @PrismUserId 어노테이션을 사용하거나 " +
-                    "'${prismExperiment.userIdParam}' 이름의 파라미터를 추가하세요."
-                )
+                ?: run {
+                    // userId가 없으면 실험 할당을 건너뛰고 원본 로직을 그대로 실행
+                    logger.warn(
+                        "userId를 찾을 수 없습니다. @PrismUserId 또는 '${prismExperiment.userIdParam}' 파라미터를 확인하세요. " +
+                        "method=${joinPoint.signature}"
+                    )
+                    PrismContext.setCurrentVariant(null, false)
+                    return joinPoint.proceed()
+                }
 
-            // 2. Prism 서버에서 variant 조회
-            val variant = try {
-                val response = prismClient.assign(userId, prismExperiment.experimentKey)
-                response.variant ?: prismExperiment.defaultVariant
+            // 2. Prism 서버에서 variant 조회 및 할당 성공 여부 확인
+            val outcome = try {
+                prismExperimentClient.assign(userId, prismExperiment.experimentKey)
             } catch (e: Exception) {
+                // 예외 발생 시 안전하게 실패 처리
                 logger.warn(
-                    "실험 '${prismExperiment.experimentKey}' variant 조회 실패, " +
-                    "기본값 '${prismExperiment.defaultVariant}' 사용: ${e.message}"
+                    "실험 '${prismExperiment.experimentKey}' variant 조회 실패: ${e.message}"
                 )
-                prismExperiment.defaultVariant
+                AssignmentOutcome.failed(
+                    userId = userId,
+                    experimentKey = prismExperiment.experimentKey,
+                    message = e.message ?: "Unknown error"
+                )
             }
 
-            // 3. PrismContext에 variant 저장
-            PrismContext.setCurrentVariant(variant)
+            if (!outcome.assigned) {
+                logger.warn(
+                    "실험 '${prismExperiment.experimentKey}' 할당 실패 (resultCode=${outcome.resultCode}, message=${outcome.resultMessage})"
+                )
+            }
+
+            val variant = if (outcome.assigned) outcome.variant else null
+            val wasActualAssignment = outcome.assigned
+
+            // 3. PrismContext에 variant 및 할당 성공 여부 저장
+            PrismContext.setCurrentVariant(variant, wasActualAssignment)
 
             logger.debug(
                 "실험 '${prismExperiment.experimentKey}' - userId: $userId, variant: $variant"

@@ -1,5 +1,6 @@
 package io.github.silbaram.prism.sdk
 
+import io.github.silbaram.prism.common.rest.ResponseCode
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.jupiter.api.AfterEach
@@ -42,7 +43,7 @@ class PrismClientTest {
         assertEquals("user123", response.userId)
         assertEquals("exp-1", response.experimentKey)
         assertEquals("A", response.variant)
-        assertEquals("0000", response.resultCode)
+        assertEquals(ResponseCode.SUCCESS.code, response.resultCode)
         assertEquals("Success", response.resultMessage)
 
         val request = mockWebServer.takeRequest()
@@ -69,7 +70,7 @@ class PrismClientTest {
         assertEquals("user123", response.userId)
         assertEquals("invalid-exp", response.experimentKey)
         assertEquals(null, response.variant)
-        assertEquals("9999", response.resultCode)
+        assertEquals(ResponseCode.GENERAL_ERROR.code, response.resultCode)
         assertEquals("Experiment not found or not active", response.resultMessage)
     }
 
@@ -82,7 +83,7 @@ class PrismClientTest {
         assertEquals("user123", response.userId)
         assertEquals("exp-1", response.experimentKey)
         assertEquals(null, response.variant)
-        assertEquals("9999", response.resultCode)
+        assertEquals(ResponseCode.GENERAL_ERROR.code, response.resultCode)
         assert(response.resultMessage.contains("HTTP 500"))
     }
 
@@ -95,7 +96,7 @@ class PrismClientTest {
         assertEquals("user123", response.userId)
         assertEquals("exp-1", response.experimentKey)
         assertEquals(null, response.variant)
-        assertEquals("9999", response.resultCode)
+        assertEquals(ResponseCode.GENERAL_ERROR.code, response.resultCode)
         assert(response.resultMessage.contains("Assignment failed"))
     }
 

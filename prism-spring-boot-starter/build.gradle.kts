@@ -22,7 +22,7 @@ tasks.getByName<Jar>("jar") {
 }
 
 dependencies {
-    // Prism SDK를 api로 노출 (외부에서 PrismClient 등을 직접 사용 가능)
+    // Prism SDK를 api로 노출 (Starter 내부 래퍼가 사용)
     api(project(":prism-sdk"))
 
     // Spring AOP 지원 (@PrismExperiment 어노테이션 처리)
