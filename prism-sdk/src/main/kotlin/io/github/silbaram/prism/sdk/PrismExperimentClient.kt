@@ -18,8 +18,13 @@ class PrismExperimentClient(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     fun assign(userId: String, experimentKey: String): AssignmentOutcome {
-        val response = prismClient.assign(userId, experimentKey)
-        return AssignmentOutcome.from(response)
+        return try {
+            val response = prismClient.assign(userId, experimentKey)
+            AssignmentOutcome.from(response)
+        } catch (e: Exception) {
+            logger.error("할당 실패: userId=${mask(userId)}, experimentKey=$experimentKey", e)
+            AssignmentOutcome.failed(userId, experimentKey, e.message ?: "Unknown error")
+        }
     }
 
     /**
@@ -39,14 +44,21 @@ class PrismExperimentClient(
         }
     }
 
+    @Deprecated("전환 오염 방지를 위해 trackConversionIfAssigned를 사용하세요.")
     fun trackConversion(userId: String, experimentKey: String, eventName: String) {
+        logger.warn(
+            "직접 trackConversion 호출 (할당 여부 확인 안 됨): " +
+            "userId=${mask(userId)}, experimentKey=$experimentKey, eventName=$eventName"
+        )
         prismClient.trackConversion(userId, experimentKey, eventName)
     }
 
     private fun mask(userId: String): String {
-        return if (userId.length > 4) {
-            "${userId.take(2)}***${userId.substring(userId.length - 2)}"
-        } else "***"
+        return when {
+            userId.isBlank() -> "***"
+            userId.length <= 4 -> "***"
+            else -> "${userId.take(2)}***${userId.takeLast(2)}"
+        }
     }
 }
 
@@ -60,7 +72,7 @@ data class AssignmentOutcome(
 ) {
     companion object {
         fun from(response: AssignmentResponse): AssignmentOutcome {
-            val assigned = response.variant != null && response.resultCode == ResponseCode.SUCCESS.code
+            val assigned = !response.variant.isNullOrBlank() && response.resultCode == ResponseCode.SUCCESS.code
             return AssignmentOutcome(
                 userId = response.userId,
                 experimentKey = response.experimentKey,
