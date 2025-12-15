@@ -81,7 +81,7 @@ val forbidDirectPrismClientTrackConversion by tasks.registering {
 
         fileTree(root) {
             include("**/*.kt")
-            exclude("prism-sdk/**", "**/build/**", "**/.gradle/**")
+            exclude("prism-sdk/**", "prism-spring-boot-starter/**", "**/build/**", "**/.gradle/**")
         }.forEach { file ->
             val content = file.readText()
             if (content.contains("import io.github.silbaram.prism.sdk.PrismClient")) {

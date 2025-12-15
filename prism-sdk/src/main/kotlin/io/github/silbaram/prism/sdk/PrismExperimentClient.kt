@@ -44,14 +44,14 @@ class PrismExperimentClient(
         }
     }
 
-    @Deprecated("전환 오염 방지를 위해 trackConversionIfAssigned를 사용하세요.")
-    fun trackConversion(userId: String, experimentKey: String, eventName: String) {
-        logger.warn(
-            "직접 trackConversion 호출 (할당 여부 확인 안 됨): " +
-            "userId=${mask(userId)}, experimentKey=$experimentKey, eventName=$eventName"
-        )
-        prismClient.trackConversion(userId, experimentKey, eventName)
-    }
+    /**
+     * trackConversionIfAssigned의 짧은 별칭입니다.
+     * 할당이 성공한 경우에만 전환을 기록합니다.
+     *
+     * @return true면 전환이 전송됨, false면 스킵
+     */
+    fun track(outcome: AssignmentOutcome, eventName: String): Boolean =
+        trackConversionIfAssigned(outcome, eventName)
 
     private fun mask(userId: String): String {
         return when {
@@ -95,3 +95,14 @@ data class AssignmentOutcome(
         }
     }
 }
+
+/**
+ * AssignmentOutcome에서 직접 전환을 추적할 수 있는 편의 확장 함수입니다.
+ * 할당이 성공한 경우에만 전환을 기록합니다.
+ *
+ * @param client PrismExperimentClient 인스턴스
+ * @param eventName 이벤트 이름
+ * @return true면 전환이 전송됨, false면 스킵
+ */
+fun AssignmentOutcome.track(client: PrismExperimentClient, eventName: String): Boolean =
+    client.trackConversionIfAssigned(this, eventName)

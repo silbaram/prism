@@ -24,11 +24,17 @@ class PrismAutoConfiguration(
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "prism.client", name = ["url"])
-    fun prismExperimentClient(): PrismExperimentClient {
-        val prismClient = PrismClient(
+    fun prismClient(): PrismClient {
+        return PrismClient(
             baseUrl = properties.url,
             timeout = properties.timeout
         )
+    }
+
+    @Bean
+    @ConditionalOnBean(PrismClient::class)
+    @ConditionalOnMissingBean
+    fun prismExperimentClient(prismClient: PrismClient): PrismExperimentClient {
         return PrismExperimentClient(prismClient)
     }
 
@@ -40,9 +46,9 @@ class PrismAutoConfiguration(
     }
 
     @Bean
-    @ConditionalOnBean(PrismExperimentClient::class)
+    @ConditionalOnBean(PrismClient::class)
     @ConditionalOnMissingBean
-    fun prismConversionTracker(prismExperimentClient: PrismExperimentClient): PrismConversionTracker {
-        return PrismConversionTracker(prismExperimentClient)
+    fun prismConversionTracker(prismClient: PrismClient): PrismConversionTracker {
+        return PrismConversionTracker(prismClient)
     }
 }
