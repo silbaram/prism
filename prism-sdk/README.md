@@ -72,19 +72,9 @@ when (variant) {
 }
 
 // 3. 전환 추적 (할당된 경우에만 자동으로 기록됨)
-experimentClient.track(outcome, "purchase")  // 짧은 별칭
-```
-
-### 다양한 전환 추적 방법
-```kotlin
-// 방법 1: 짧은 별칭 (권장)
 experimentClient.track(outcome, "purchase")
-
-// 방법 2: Extension function (더 간결)
-outcome.track(experimentClient, "purchase")
-
-// 방법 3: 전체 이름 (명시적)
-experimentClient.trackConversionIfAssigned(outcome, "purchase")
 ```
 
-세 가지 방법 모두 동일하게 동작하며, **할당이 성공한 경우에만** 전환을 기록하여 통계 오염을 방지합니다.
+`track()` 메서드는 **할당이 성공한 경우에만** 전환을 기록하여 통계 오염을 방지합니다.
+- 할당 성공 시 (assigned=true): 전환 이벤트를 기록하고 `true` 반환
+- 할당 실패 시 (assigned=false): 전환을 스킵하고 `false` 반환
