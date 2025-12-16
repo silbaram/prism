@@ -1,6 +1,6 @@
 package io.github.silbaram.prism.starter.service
 
-import io.github.silbaram.prism.sdk.PrismExperimentClient
+import io.github.silbaram.prism.sdk.PrismClient
 import io.github.silbaram.prism.starter.aop.PrismContext
 import org.slf4j.LoggerFactory
 
@@ -47,7 +47,7 @@ import org.slf4j.LoggerFactory
  * ```
  */
 class PrismConversionTracker(
-    private val prismExperimentClient: PrismExperimentClient
+    private val prismClient: PrismClient
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -70,7 +70,7 @@ class PrismConversionTracker(
     fun trackConversionSafe(userId: String, experimentKey: String, eventName: String) {
         if (PrismContext.wasActuallyAssigned()) {
             // 실제로 할당받은 경우 → 전환 추적
-            prismExperimentClient.trackConversion(userId, experimentKey, eventName)
+            prismClient.trackConversion(userId, experimentKey, eventName)
             logger.debug("전환 추적 성공: userId=$userId, experimentKey=$experimentKey, eventName=$eventName")
         } else {
             // 할당 실패 → 전환 추적 스킵
@@ -81,25 +81,4 @@ class PrismConversionTracker(
         }
     }
 
-    /**
-     * 항상 전환 이벤트를 추적합니다 (할당 여부 무시).
-     *
-     * **경고:** 이 메서드는 통계 오염을 일으킬 수 있습니다!
-     * 특별한 이유가 없다면 trackConversionSafe()를 사용하세요.
-     *
-     * **사용 케이스:**
-     * - A/B 테스트와 무관한 일반 이벤트 추적
-     * - 레거시 코드 호환성
-     *
-     * @param userId 사용자 고유 식별자
-     * @param experimentKey 실험 키
-     * @param eventName 이벤트 이름
-     */
-    fun trackConversionUnsafe(userId: String, experimentKey: String, eventName: String) {
-        logger.warn(
-            "Unsafe conversion tracking (통계 오염 가능): " +
-            "userId=$userId, experimentKey=$experimentKey, eventName=$eventName"
-        )
-        prismExperimentClient.trackConversion(userId, experimentKey, eventName)
-    }
 }

@@ -5,18 +5,29 @@ import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
 import org.slf4j.LoggerFactory
 
 /**
- * PrismClient를 감싸 안전한 A/B 실험 흐름만 노출하는 래퍼입니다.
+ * A/B 테스트를 안전하게 실행할 수 있도록 도와주는 클라이언트입니다.
  *
- * - assign 시 `assigned` 플래그를 계산해 반환합니다.
- * - trackConversionIfAssigned로 통계 오염을 방지할 수 있습니다.
+ * 주요 기능:
+ * - 사용자에게 실험 variant 할당 (성공/실패 여부 확인 가능)
+ * - 할당에 성공한 경우에만 전환 이벤트 기록 (통계 오염 방지)
  *
- * Spring 여부와 무관하게 사용할 수 있습니다.
+ * Spring Boot 환경이 아니어도 사용 가능합니다.
  */
 class PrismExperimentClient(
     private val prismClient: PrismClient
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
+    /**
+     * 사용자에게 실험 variant를 할당합니다.
+     *
+     * API 장애나 네트워크 오류가 발생해도 예외를 던지지 않고,
+     * assigned=false인 결과를 반환합니다.
+     *
+     * @param userId 사용자 ID
+     * @param experimentKey 실험 키
+     * @return 할당 결과 (variant, assigned 플래그 포함)
+     */
     fun assign(userId: String, experimentKey: String): AssignmentOutcome {
         return try {
             val response = prismClient.assign(userId, experimentKey)
@@ -28,29 +39,33 @@ class PrismExperimentClient(
     }
 
     /**
-     * 할당이 성공한 경우에만 전환을 기록합니다.
+     * 전환 이벤트를 추적합니다.
      *
-     * @return true면 전환이 전송됨, false면 스킵
+     * assign() 호출이 성공했을 때만 전환을 기록하여 통계 오염을 방지합니다.
+     * API 장애나 실험 미등록 등으로 할당에 실패했다면 전환을 기록하지 않습니다.
+     *
+     * 사용 예시:
+     * ```
+     * val outcome = experimentClient.assign("user-123", "checkout-experiment")
+     * // ...  비즈니스 로직 실행 ...
+     * experimentClient.track(outcome, "purchase")
+     * ```
+     *
+     * @param outcome assign() 호출 결과
+     * @param eventName 전환 이벤트 이름 (예: "purchase", "signup", "click")
+     * @return true:  전환 기록됨, false: 스킵됨 (할당 실패)
      */
-    fun trackConversionIfAssigned(outcome: AssignmentOutcome, eventName: String): Boolean {
+    fun track(outcome: AssignmentOutcome, eventName: String): Boolean  {
         return if (outcome.assigned) {
-            prismClient.trackConversion(outcome.userId, outcome.experimentKey, eventName)
+            prismClient.trackConversion(outcome.userId, outcome. experimentKey, eventName)
             true
         } else {
             logger.debug(
-                "trackConversion 스킵 (할당 실패): userId=${mask(outcome.userId)}, experimentKey=${outcome.experimentKey}, eventName=$eventName"
+                "전환 스킵 (할당 실패): userId=${mask(outcome.userId)}, experimentKey=${outcome.experimentKey}, " +
+                    "eventName=$eventName, reason=${outcome.resultMessage}"
             )
             false
         }
-    }
-
-    @Deprecated("전환 오염 방지를 위해 trackConversionIfAssigned를 사용하세요.")
-    fun trackConversion(userId: String, experimentKey: String, eventName: String) {
-        logger.warn(
-            "직접 trackConversion 호출 (할당 여부 확인 안 됨): " +
-            "userId=${mask(userId)}, experimentKey=$experimentKey, eventName=$eventName"
-        )
-        prismClient.trackConversion(userId, experimentKey, eventName)
     }
 
     private fun mask(userId: String): String {
@@ -62,6 +77,16 @@ class PrismExperimentClient(
     }
 }
 
+/**
+ * 실험 할당 결과를 담는 데이터 클래스입니다.
+ *
+ * @property userId 사용자 ID
+ * @property experimentKey 실험 키
+ * @property variant 할당된 variant (실패 시 null)
+ * @property assigned 할당 성공 여부 (true: 성공, false: 실패)
+ * @property resultCode 결과 코드 ("0000": 성공, 그 외: 실패 사유)
+ * @property resultMessage 결과 메시지
+ */
 data class AssignmentOutcome(
     val userId: String,
     val experimentKey: String,
@@ -71,6 +96,10 @@ data class AssignmentOutcome(
     val resultMessage: String
 ) {
     companion object {
+        /**
+         * API 응답으로부터 AssignmentOutcome을 생성합니다.
+         * variant가 있고 resultCode가 성공이면 assigned=true로 설정됩니다.
+         */
         fun from(response: AssignmentResponse): AssignmentOutcome {
             val assigned = !response.variant.isNullOrBlank() && response.resultCode == ResponseCode.SUCCESS.code
             return AssignmentOutcome(
@@ -83,6 +112,10 @@ data class AssignmentOutcome(
             )
         }
 
+        /**
+         * 실패한 AssignmentOutcome을 생성합니다.
+         * 네트워크 오류나 예외 발생 시 사용됩니다.
+         */
         fun failed(userId: String, experimentKey: String, message: String): AssignmentOutcome {
             return AssignmentOutcome(
                 userId = userId,
