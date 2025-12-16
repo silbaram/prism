@@ -39,7 +39,7 @@ class PrismExperimentClient(
     }
 
     /**
-     * 전환 이벤트를 추적합니다. (할당 성공 시에만 기록)
+     * 전환 이벤트를 추적합니다.
      *
      * assign() 호출이 성공했을 때만 전환을 기록하여 통계 오염을 방지합니다.
      * API 장애나 실험 미등록 등으로 할당에 실패했다면 전환을 기록하지 않습니다.
@@ -47,44 +47,26 @@ class PrismExperimentClient(
      * 사용 예시:
      * ```
      * val outcome = experimentClient.assign("user-123", "checkout-experiment")
-     * // ... 비즈니스 로직 실행 ...
-     * experimentClient.trackConversionIfAssigned(outcome, "purchase")
+     * // ...  비즈니스 로직 실행 ...
+     * experimentClient.track(outcome, "purchase")
      * ```
      *
      * @param outcome assign() 호출 결과
      * @param eventName 전환 이벤트 이름 (예: "purchase", "signup", "click")
-     * @return true: 전환 기록됨, false: 스킵됨 (할당 실패)
+     * @return true:  전환 기록됨, false: 스킵됨 (할당 실패)
      */
-    fun trackConversionIfAssigned(outcome: AssignmentOutcome, eventName: String): Boolean {
+    fun track(outcome: AssignmentOutcome, eventName: String): Boolean  {
         return if (outcome.assigned) {
-            prismClient.trackConversion(outcome.userId, outcome.experimentKey, eventName)
+            prismClient.trackConversion(outcome.userId, outcome. experimentKey, eventName)
             true
         } else {
             logger.debug(
-                "trackConversion 스킵 (할당 실패): userId=${mask(outcome.userId)}, experimentKey=${outcome.experimentKey}, eventName=$eventName"
+                "전환 스킵 (할당 실패): userId=${mask(outcome.userId)}, experimentKey=${outcome.experimentKey}, " +
+                    "eventName=$eventName, reason=${outcome.resultMessage}"
             )
             false
         }
     }
-
-    /**
-     * 전환 이벤트를 추적합니다. (짧은 버전)
-     *
-     * trackConversionIfAssigned()와 동일하게 동작하지만 이름이 더 짧습니다.
-     *
-     * 사용 예시:
-     * ```
-     * val outcome = experimentClient.assign("user-123", "checkout-experiment")
-     * // ... 비즈니스 로직 실행 ...
-     * experimentClient.track(outcome, "purchase")  // 간단!
-     * ```
-     *
-     * @param outcome assign() 호출 결과
-     * @param eventName 전환 이벤트 이름 (예: "purchase", "signup", "click")
-     * @return true: 전환 기록됨, false: 스킵됨 (할당 실패)
-     */
-    fun track(outcome: AssignmentOutcome, eventName: String): Boolean =
-        trackConversionIfAssigned(outcome, eventName)
 
     private fun mask(userId: String): String {
         return when {
@@ -146,22 +128,3 @@ data class AssignmentOutcome(
         }
     }
 }
-
-/**
- * 전환 이벤트를 추적합니다. (AssignmentOutcome에서 직접 호출)
- *
- * outcome 객체에서 바로 track()을 호출할 수 있어 더 간결합니다.
- *
- * 사용 예시:
- * ```
- * val outcome = experimentClient.assign("user-123", "checkout-experiment")
- * // ... 비즈니스 로직 실행 ...
- * outcome.track(experimentClient, "purchase")  // outcome에서 직접!
- * ```
- *
- * @param client PrismExperimentClient 인스턴스
- * @param eventName 전환 이벤트 이름 (예: "purchase", "signup", "click")
- * @return true: 전환 기록됨, false: 스킵됨 (할당 실패)
- */
-fun AssignmentOutcome.track(client: PrismExperimentClient, eventName: String): Boolean =
-    client.trackConversionIfAssigned(this, eventName)
