@@ -12,6 +12,11 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.springframework.context.ApplicationContext
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class PrismStrategyResolverTest {
 
@@ -136,5 +141,127 @@ class PrismStrategyResolverTest {
     @PrismStrategy(variant = "control", experimentKey = "checkout_strategy")
     class TestCheckoutStrategyControl : TestCheckoutStrategy {
         override fun processCheckout(amount: Int): Int = amount  // 할인 없음
+    }
+
+    @Test
+    fun `동시성 테스트 - 여러 스레드가 동시에 전략을 resolve해도 안전하다`() {
+        // Given: variant A, B를 번갈아 할당
+        every { mockPrismClient.assign(any(), "pricing_strategy") } answers {
+            val userId = firstArg<String>()
+            val userNumber = userId.substringAfter("user-").toInt()
+            val variant = if (userNumber % 2 == 0) "A" else "B"
+            AssignmentResponse(
+                userId = userId,
+                experimentKey = "pricing_strategy",
+                variant = variant,
+                resultCode = ResponseCode.SUCCESS.code,
+                resultMessage = "Success"
+            )
+        }
+
+        val strategyA = TestPricingStrategyA()
+        val strategyB = TestPricingStrategyB()
+        every { mockApplicationContext.getBeansOfType(TestPricingStrategy::class.java) } returns mapOf(
+            "strategyA" to strategyA,
+            "strategyB" to strategyB
+        )
+
+        // 100개의 스레드로 동시에 1000번씩 호출
+        val threadCount = 100
+        val iterationsPerThread = 1000
+        val executor = Executors.newFixedThreadPool(threadCount)
+        val latch = CountDownLatch(threadCount)
+        val errors = ConcurrentHashMap.newKeySet<Throwable>()
+        val successCount = AtomicInteger(0)
+
+        // When: 여러 스레드가 동시에 전략 resolve
+        repeat(threadCount) { threadIndex ->
+            executor.submit {
+                try {
+                    repeat(iterationsPerThread) { iteration ->
+                        val userId = "user-${threadIndex * iterationsPerThread + iteration}"
+                        val strategy = resolver.resolve<TestPricingStrategy>(userId, "pricing_strategy")
+                        val result = strategy.calculatePrice(1000)
+
+                        // 결과 검증
+                        val userNumber = userId.substringAfter("user-").toInt()
+                        val expected = if (userNumber % 2 == 0) 900 else 800
+                        assertEquals(expected, result, "userId=$userId, result mismatch")
+                        successCount.incrementAndGet()
+                    }
+                } catch (e: Throwable) {
+                    errors.add(e)
+                } finally {
+                    latch.countDown()
+                }
+            }
+        }
+
+        // Then: 모든 스레드가 완료될 때까지 대기 (최대 30초)
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test timeout after 30 seconds")
+        executor.shutdown()
+
+        // 에러가 없어야 함
+        if (errors.isNotEmpty()) {
+            errors.forEach { it.printStackTrace() }
+            fail<Unit>("Concurrency test failed with ${errors.size} errors: ${errors.first().message}")
+        }
+
+        // 모든 요청이 성공해야 함
+        val expectedTotal = threadCount * iterationsPerThread
+        assertEquals(expectedTotal, successCount.get(), "성공한 요청 수가 예상과 다름")
+
+        println("✅ 동시성 테스트 성공: ${successCount.get()}개의 요청이 모두 정상 처리됨")
+    }
+
+    @Test
+    fun `동시성 테스트 - 캐시 미스가 동시에 발생해도 안전하다`() {
+        // Given: checkout_strategy 실험에 대한 설정 (기존 실험 재사용)
+        every { mockPrismClient.assign(any(), "checkout_strategy") } answers {
+            AssignmentResponse(
+                userId = firstArg(),  // 실제 userId를 반환
+                experimentKey = "checkout_strategy",
+                variant = "premium",
+                resultCode = ResponseCode.SUCCESS.code,
+                resultMessage = "Success"
+            )
+        }
+
+        // 전략들 설정
+        val premiumStrategy = TestCheckoutStrategyPremium()
+        every { mockApplicationContext.getBeansOfType(TestCheckoutStrategy::class.java) } returns mapOf(
+            "premium" to premiumStrategy
+        )
+
+        // 10개의 스레드가 동시에 첫 호출 (캐시 미스)
+        val threadCount = 10
+        val executor = Executors.newFixedThreadPool(threadCount)
+        val latch = CountDownLatch(threadCount)
+        val results = ConcurrentHashMap<Int, Int>()
+
+        // When: 여러 스레드가 동시에 첫 호출 (캐시 미스)
+        repeat(threadCount) { threadIndex ->
+            executor.submit {
+                try {
+                    val strategy = resolver.resolve<TestCheckoutStrategy>("user-$threadIndex", "checkout_strategy")
+                    val result = strategy.processCheckout(1000)
+                    results[threadIndex] = result
+                } finally {
+                    latch.countDown()
+                }
+            }
+        }
+
+        // Then: 모든 스레드가 완료될 때까지 대기
+        assertTrue(latch.await(10, TimeUnit.SECONDS))
+        executor.shutdown()
+
+        // 모든 결과가 올바르게 반환되어야 함
+        assertEquals(threadCount, results.size)
+        results.values.forEach { result ->
+            assertEquals(950, result, "Result mismatch")  // premium: 5% 할인 = 950
+        }
+
+        println("✅ 캐시 미스 동시성 테스트 성공: ${results.size}개의 요청이 모두 정상 처리됨")
     }
 }

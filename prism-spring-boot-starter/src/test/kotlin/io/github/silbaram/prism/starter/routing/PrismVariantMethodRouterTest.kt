@@ -12,6 +12,11 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class PrismVariantMethodRouterTest {
 
@@ -124,6 +129,129 @@ class PrismVariantMethodRouterTest {
         // Then: 두 번 모두 정상 실행됨 (캐싱 덕분에 빠름)
         assertEquals(900, result1)
         assertEquals(1800, result2)
+    }
+
+    @Test
+    fun `동시성 테스트 - 여러 스레드가 동시에 라우팅을 호출해도 안전하다`() {
+        // Given: variant A, B, control을 번갈아 할당
+        every { mockPrismClient.assign(any(), "checkout_discount") } answers {
+            val userId = firstArg<String>()
+            val userNumber = userId.substringAfter("user-").toInt()
+            val variant = when (userNumber % 3) {
+                0 -> "A"
+                1 -> "B"
+                else -> "control"
+            }
+            AssignmentResponse(
+                userId = userId,
+                experimentKey = "checkout_discount",
+                variant = variant,
+                resultCode = ResponseCode.SUCCESS.code,
+                resultMessage = "Success"
+            )
+        }
+
+        // 100개의 스레드로 동시에 1000번씩 호출
+        val threadCount = 100
+        val iterationsPerThread = 1000
+        val executor = Executors.newFixedThreadPool(threadCount)
+        val latch = CountDownLatch(threadCount)
+        val errors = ConcurrentHashMap.newKeySet<Throwable>()
+        val successCount = AtomicInteger(0)
+
+        // When: 여러 스레드가 동시에 라우팅 호출
+        repeat(threadCount) { threadIndex ->
+            executor.submit {
+                try {
+                    repeat(iterationsPerThread) { iteration ->
+                        val userId = "user-${threadIndex * iterationsPerThread + iteration}"
+                        val result = router.route<Int>(testService, userId, "checkout_discount", 1000)
+
+                        // 결과 검증
+                        val userNumber = userId.substringAfter("user-").toInt()
+                        val expected = when (userNumber % 3) {
+                            0 -> 900   // A: 10% 할인
+                            1 -> 800   // B: 20% 할인
+                            else -> 1000  // control: 할인 없음
+                        }
+                        assertEquals(expected, result, "userId=$userId, result mismatch")
+                        successCount.incrementAndGet()
+                    }
+                } catch (e: Throwable) {
+                    errors.add(e)
+                } finally {
+                    latch.countDown()
+                }
+            }
+        }
+
+        // Then: 모든 스레드가 완료될 때까지 대기 (최대 30초)
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test timeout after 30 seconds")
+        executor.shutdown()
+
+        // 에러가 없어야 함
+        if (errors.isNotEmpty()) {
+            errors.forEach { it.printStackTrace() }
+            fail<Unit>("Concurrency test failed with ${errors.size} errors: ${errors.first().message}")
+        }
+
+        // 모든 요청이 성공해야 함
+        val expectedTotal = threadCount * iterationsPerThread
+        assertEquals(expectedTotal, successCount.get(), "성공한 요청 수가 예상과 다름")
+
+        println("✅ 동시성 테스트 성공: ${successCount.get()}개의 요청이 모두 정상 처리됨")
+    }
+
+    @Test
+    fun `동시성 테스트 - 캐시 미스가 동시에 발생해도 안전하다`() {
+        // Given: 첫 번째 호출에서만 캐시 미스 발생
+        var callCount = 0
+        every { mockPrismClient.assign(any(), "new_experiment") } answers {
+            callCount++
+            AssignmentResponse(
+                userId = firstArg(),
+                experimentKey = "new_experiment",
+                variant = "A",
+                resultCode = ResponseCode.SUCCESS.code,
+                resultMessage = "Success"
+            )
+        }
+
+        // 새로운 테스트 서비스 (캐시에 없음)
+        val newService = object {
+            @PrismVariantMethod(variant = "A", experimentKey = "new_experiment")
+            fun processA(amount: Int): Int = amount * 2
+        }
+
+        // 10개의 스레드가 동시에 첫 호출 (캐시 미스)
+        val threadCount = 10
+        val executor = Executors.newFixedThreadPool(threadCount)
+        val latch = CountDownLatch(threadCount)
+        val results = ConcurrentHashMap<Int, Int>()
+
+        // When: 여러 스레드가 동시에 첫 호출 (캐시 미스)
+        repeat(threadCount) { threadIndex ->
+            executor.submit {
+                try {
+                    val result = router.route<Int>(newService, "user-$threadIndex", "new_experiment", 1000)
+                    results[threadIndex] = result
+                } finally {
+                    latch.countDown()
+                }
+            }
+        }
+
+        // Then: 모든 스레드가 완료될 때까지 대기
+        assertTrue(latch.await(10, TimeUnit.SECONDS))
+        executor.shutdown()
+
+        // 모든 결과가 올바르게 반환되어야 함
+        assertEquals(threadCount, results.size)
+        results.values.forEach { result ->
+            assertEquals(2000, result, "Result mismatch")
+        }
+
+        println("✅ 캐시 미스 동시성 테스트 성공: ${results.size}개의 요청이 모두 정상 처리됨")
     }
 
     // 테스트용 서비스 클래스

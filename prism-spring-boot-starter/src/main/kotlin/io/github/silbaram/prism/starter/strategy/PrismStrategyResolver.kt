@@ -5,6 +5,7 @@ import io.github.silbaram.prism.starter.annotation.PrismStrategy
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationContext
 import org.springframework.stereotype.Component
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * reified 타입 파라미터를 사용하기 위한 extension function
@@ -43,7 +44,8 @@ class PrismStrategyResolver(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     // 전략 캐시: (인터페이스 타입 -> experimentKey -> variant -> Bean)
-    private val strategyCache = mutableMapOf<Class<*>, MutableMap<String, MutableMap<String, Any>>>()
+    // Thread-safe를 위해 ConcurrentHashMap 사용
+    private val strategyCache = ConcurrentHashMap<Class<*>, ConcurrentHashMap<String, ConcurrentHashMap<String, Any>>>()
 
 
     /**
@@ -82,7 +84,7 @@ class PrismStrategyResolver(
         variant: String
     ): Any? {
         // 캐시 확인
-        val interfaceCache = strategyCache.getOrPut(strategyInterface) { mutableMapOf() }
+        val interfaceCache = strategyCache.getOrPut(strategyInterface) { ConcurrentHashMap() }
         val experimentCache = interfaceCache.getOrPut(experimentKey) {
             // 캐시 미스: ApplicationContext를 스캔해서 해당 experimentKey의 모든 전략 수집
             scanStrategiesForExperiment(strategyInterface, experimentKey)
@@ -97,8 +99,8 @@ class PrismStrategyResolver(
     private fun scanStrategiesForExperiment(
         strategyInterface: Class<*>,
         experimentKey: String
-    ): MutableMap<String, Any> {
-        val result = mutableMapOf<String, Any>()
+    ): ConcurrentHashMap<String, Any> {
+        val result = ConcurrentHashMap<String, Any>()
 
         // ApplicationContext에서 해당 인터페이스 타입의 모든 Bean 찾기
         val beans = applicationContext.getBeansOfType(strategyInterface)

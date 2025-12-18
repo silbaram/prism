@@ -5,6 +5,7 @@ import io.github.silbaram.prism.starter.annotation.PrismVariantMethod
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.lang.reflect.Method
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * @PrismVariantMethod가 붙은 메서드를 variant에 따라 자동으로 선택하고 실행하는 라우터입니다.
@@ -40,7 +41,8 @@ class PrismVariantMethodRouter(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     // 메서드 캐시: (클래스 -> experimentKey -> variant -> Method)
-    private val methodCache = mutableMapOf<Class<*>, MutableMap<String, MutableMap<String, Method>>>()
+    // Thread-safe를 위해 ConcurrentHashMap 사용
+    private val methodCache = ConcurrentHashMap<Class<*>, ConcurrentHashMap<String, ConcurrentHashMap<String, Method>>>()
 
     /**
      * variant에 맞는 메서드를 찾아서 실행합니다.
@@ -83,7 +85,7 @@ class PrismVariantMethodRouter(
      */
     private fun findMethodForVariant(clazz: Class<*>, experimentKey: String, variant: String): Method? {
         // 캐시 확인
-        val classCache = methodCache.getOrPut(clazz) { mutableMapOf() }
+        val classCache = methodCache.getOrPut(clazz) { ConcurrentHashMap() }
         val experimentCache = classCache.getOrPut(experimentKey) {
             // 캐시 미스: 클래스를 스캔해서 해당 experimentKey의 모든 메서드 수집
             scanMethodsForExperiment(clazz, experimentKey)
@@ -95,8 +97,8 @@ class PrismVariantMethodRouter(
     /**
      * 클래스에서 특정 experimentKey를 가진 @PrismVariantMethod 메서드를 모두 찾아 맵으로 반환합니다.
      */
-    private fun scanMethodsForExperiment(clazz: Class<*>, experimentKey: String): MutableMap<String, Method> {
-        val result = mutableMapOf<String, Method>()
+    private fun scanMethodsForExperiment(clazz: Class<*>, experimentKey: String): ConcurrentHashMap<String, Method> {
+        val result = ConcurrentHashMap<String, Method>()
 
         clazz.declaredMethods.forEach { method ->
             val annotation = method.getAnnotation(PrismVariantMethod::class.java)
