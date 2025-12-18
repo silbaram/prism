@@ -522,6 +522,119 @@ data class CheckoutResult(val orderId: String, val amount: Int, val discountMess
 | **코드 분리** | 메서드 단위 | 클래스 단위 |
 | **추천** | 시작할 때 | 확장할 때 |
 
+### Control Fallback (자동 안전망)
+
+**중요**: Prism은 Fail-safe 설계로, variant 메서드/전략을 찾지 못하면 자동으로 `control`로 폴백합니다.
+
+#### 동작 방식
+
+```
+1. 할당된 variant 메서드/전략 찾기
+   ↓
+2. 없으면 → "control"로 자동 폴백 (안전망)
+   ↓
+3. control도 없으면 → 예외 발생
+```
+
+#### 실제 시나리오
+
+**시나리오 1: 새 variant 배포 전**
+```
+상황: Admin에서 "premium" variant 추가 (트래픽 50%)
+     하지만 아직 코드 배포 안 함
+
+결과: premium 사용자들이 자동으로 control 메서드 실행 ✅
+     서비스 정상 동작, WARN 로그만 기록
+```
+
+**시나리오 2: Canary 배포**
+```
+상황: 10대 서버 중 2대만 신규 코드 배포
+     - 8대: "v2" 메서드 없음
+     - 2대: "v2" 메서드 있음
+
+결과: 8대는 control 실행 ✅, 2대는 v2 실행 ✅
+     서비스 중단 없이 점진적 배포 가능
+```
+
+#### 올바른 구현 패턴
+
+✅ **권장: control 메서드 항상 구현**
+
+```kotlin
+@Service
+class PricingService(private val router: PrismVariantMethodRouter) {
+
+    fun calculatePrice(userId: String, amount: Int): Int {
+        return router.route(this, userId, "pricing_experiment", amount)
+    }
+
+    @PrismVariantMethod(variant = "premium", experimentKey = "pricing_experiment")
+    fun calculatePricePremium(amount: Int): Int = (amount * 0.85).toInt()
+
+    @PrismVariantMethod(variant = "standard", experimentKey = "pricing_experiment")
+    fun calculatePriceStandard(amount: Int): Int = (amount * 0.95).toInt()
+
+    // ⭐ control은 "안전망" 역할
+    @PrismVariantMethod(variant = "control", experimentKey = "pricing_experiment")
+    fun calculatePriceControl(amount: Int): Int = amount  // 기본 가격
+}
+```
+
+**장점:**
+- 실험 설정 실수해도 서비스 안전
+- Canary/Rolling 배포 시 안전
+- 배포 타이밍 유연 (Admin 먼저 or 코드 먼저 모두 OK)
+
+❌ **위험: control 없이 구현**
+
+```kotlin
+@Service
+class PricingService(private val router: PrismVariantMethodRouter) {
+
+    @PrismVariantMethod(variant = "premium", experimentKey = "pricing_experiment")
+    fun calculatePricePremium(amount: Int): Int = (amount * 0.85).toInt()
+
+    @PrismVariantMethod(variant = "standard", experimentKey = "pricing_experiment")
+    fun calculatePriceStandard(amount: Int): Int = (amount * 0.95).toInt()
+
+    // ❌ control 메서드 없음!
+}
+```
+
+**문제점:**
+- premium/standard 찾기 실패 시 → 예외 발생 💥
+- control variant 할당 시 → 예외 발생 💥
+- 서비스 중단 위험
+
+#### 전략 패턴에서도 동일
+
+```kotlin
+// ✅ control 전략 필수
+@PrismStrategy(variant = "premium", experimentKey = "pricing")
+@Component
+class PremiumPricingStrategy : PricingStrategy { ... }
+
+@PrismStrategy(variant = "control", experimentKey = "pricing")
+@Component
+class ControlPricingStrategy : PricingStrategy { ... }  // 안전망
+```
+
+#### 로그 확인
+
+Fallback 발생 시 WARN 로그가 기록됩니다:
+
+```
+WARN - Variant method not found, falling back to 'control'.
+       variant='premium', experimentKey=pricing_experiment,
+       class=PricingService, userId=us***23
+```
+
+이 로그가 지속적으로 발생하면:
+1. Admin 설정 확인 (불필요한 variant 제거)
+2. 해당 variant 메서드 구현
+3. 배포 완료 후 로그 사라짐 확인
+
 ---
 
 ## 자주 묻는 질문
@@ -696,6 +809,78 @@ class AsyncCheckoutService(
         // 전환 추적 (메인 스레드가 아니어도 OK)
         conversionTracker.trackConversionSafe(userId, "checkout_test", "purchase")
     }
+}
+```
+
+### Q9. variant 메서드/전략이 없으면 어떻게 되나요?
+
+**A**: 자동으로 `control`로 폴백합니다 (Fail-safe 동작).
+
+**예시 상황:**
+```kotlin
+// Admin에서 "premium" variant 추가 (50% 트래픽)
+// 하지만 아직 premium 메서드를 구현하지 않음
+
+@PrismVariantMethod(variant = "A", experimentKey = "pricing")
+fun calculatePriceA(amount: Int): Int = (amount * 0.9).toInt()
+
+@PrismVariantMethod(variant = "control", experimentKey = "pricing")
+fun calculatePriceControl(amount: Int): Int = amount  // 기본값
+
+// premium 메서드 없음!
+```
+
+**동작:**
+1. premium variant 할당됨
+2. premium 메서드 찾기 → 없음
+3. **자동으로 control 메서드 실행** ✅
+4. WARN 로그 기록
+
+**결과:** 서비스 정상 동작, 배포 타이밍 유연
+
+### Q10. control 메서드는 반드시 필요한가요?
+
+**A**: **강력히 권장**합니다. control은 "안전망" 역할을 합니다.
+
+**control이 있는 경우:**
+```kotlin
+@PrismVariantMethod(variant = "A", experimentKey = "test")
+fun processA(data: Int): Int = data * 2
+
+@PrismVariantMethod(variant = "control", experimentKey = "test")
+fun processControl(data: Int): Int = data  // 안전망
+
+// variant "B" 할당 → B 메서드 없음 → control 실행 ✅
+```
+
+**control이 없는 경우:**
+```kotlin
+@PrismVariantMethod(variant = "A", experimentKey = "test")
+fun processA(data: Int): Int = data * 2
+
+// control 메서드 없음!
+
+// variant "B" 할당 → B 메서드 없음 → control 찾기 → 없음 → 예외 발생 💥
+```
+
+**control이 필요한 이유:**
+- ✅ 새 variant 배포 전에도 서비스 안전
+- ✅ Canary 배포 시 일부 서버 안전
+- ✅ 실험 설정 실수해도 서비스 중단 없음
+- ✅ Prism의 Fail-safe 철학과 일치
+
+**권장 패턴:**
+```kotlin
+// control = 기존 로직 = 안전한 기본값
+@PrismVariantMethod(variant = "control", experimentKey = "my_experiment")
+fun processControl(data: Data): Result {
+    return existingSafeImplementation(data)
+}
+
+// 실험 variant들
+@PrismVariantMethod(variant = "A", experimentKey = "my_experiment")
+fun processA(data: Data): Result {
+    return newExperimentalImplementation(data)
 }
 ```
 

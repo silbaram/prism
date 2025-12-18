@@ -93,8 +93,8 @@ class PrismVariantMethodRouterTest {
     }
 
     @Test
-    fun `해당 variant의 메서드가 없으면 예외가 발생한다`() {
-        // Given: 존재하지 않는 variant가 할당됨
+    fun `Fallback 테스트 - variant 메서드가 없으면 control로 폴백한다`() {
+        // Given: 존재하지 않는 variant "C"가 할당됨
         every { mockPrismClient.assign("user-999", "checkout_discount") } returns AssignmentResponse(
             userId = "user-999",
             experimentKey = "checkout_discount",
@@ -103,11 +103,54 @@ class PrismVariantMethodRouterTest {
             resultMessage = "Success"
         )
 
+        // When: 라우팅 실행
+        val result = router.route<Int>(testService, "user-999", "checkout_discount", 1000)
+
+        // Then: control 메서드가 실행됨 (할인 없음)
+        assertEquals(1000, result, "variant C 메서드가 없으므로 control로 폴백해야 함")
+    }
+
+    @Test
+    fun `Fallback 테스트 - variant와 control 모두 없으면 예외가 발생한다`() {
+        // Given: 존재하지 않는 variant "D"가 할당되고, control도 없는 서비스
+        every { mockPrismClient.assign("user-999", "no_control_experiment") } returns AssignmentResponse(
+            userId = "user-999",
+            experimentKey = "no_control_experiment",
+            variant = "D",
+            resultCode = ResponseCode.SUCCESS.code,
+            resultMessage = "Success"
+        )
+
+        val noControlService = object {
+            @PrismVariantMethod(variant = "A", experimentKey = "no_control_experiment")
+            fun processA(amount: Int): Int = (amount * 0.9).toInt()
+            // control 메서드 없음!
+        }
+
         // When & Then: 예외 발생
         val exception = assertThrows<NoSuchMethodException> {
-            router.route<Int>(testService, "user-999", "checkout_discount", 1000)
+            router.route<Int>(noControlService, "user-999", "no_control_experiment", 1000)
         }
-        assertTrue(exception.message!!.contains("variant='C'"))
+        assertTrue(exception.message!!.contains("variant='D'"))
+        assertTrue(exception.message!!.contains("'control'"))
+    }
+
+    @Test
+    fun `Fallback 테스트 - control variant가 할당되면 폴백 없이 바로 실행된다`() {
+        // Given: control이 할당됨
+        every { mockPrismClient.assign("user-control", "checkout_discount") } returns AssignmentResponse(
+            userId = "user-control",
+            experimentKey = "checkout_discount",
+            variant = "control",
+            resultCode = ResponseCode.SUCCESS.code,
+            resultMessage = "Success"
+        )
+
+        // When: 라우팅 실행
+        val result = router.route<Int>(testService, "user-control", "checkout_discount", 1000)
+
+        // Then: control 메서드가 실행됨
+        assertEquals(1000, result)
     }
 
     @Test

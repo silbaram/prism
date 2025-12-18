@@ -51,10 +51,15 @@ class PrismStrategyResolver(
     /**
      * userId와 experimentKey를 기반으로 적절한 전략 구현체를 반환합니다.
      *
+     * Fail-safe 동작:
+     * - variant 전략을 찾지 못하면 자동으로 "control" 전략으로 폴백합니다.
+     * - control 전략도 없으면 예외를 던집니다.
+     *
      * @param strategyInterface 전략 인터페이스 타입
      * @param userId 사용자 ID
      * @param experimentKey 실험 키
      * @return 현재 variant에 맞는 전략 구현체
+     * @throws IllegalStateException control 전략조차 찾을 수 없는 경우
      */
     @Suppress("UNCHECKED_CAST")
     fun <T : Any> resolve(strategyInterface: Class<T>, userId: String, experimentKey: String): T {
@@ -65,13 +70,38 @@ class PrismStrategyResolver(
         logger.debug("전략 선택: experimentKey=$experimentKey, userId=$userId, variant=$variant")
 
         // 2. 해당 variant의 전략 찾기
-        val strategy = findStrategyForVariant(strategyInterface, experimentKey, variant)
-            ?: throw IllegalStateException(
-                "variant='$variant'에 해당하는 @PrismStrategy를 찾을 수 없습니다. " +
+        var strategy = findStrategyForVariant(strategyInterface, experimentKey, variant)
+
+        // 3. 전략을 찾지 못하면 control로 폴백 (Fail-safe)
+        if (strategy == null && variant != "control") {
+            logger.warn(
+                "Strategy not found, falling back to 'control'. " +
+                "variant='{}', experimentKey={}, interface={}, userId={}",
+                variant, experimentKey, strategyInterface.simpleName, maskUserId(userId)
+            )
+            strategy = findStrategyForVariant(strategyInterface, experimentKey, "control")
+        }
+
+        // 4. control도 없으면 예외 발생
+        if (strategy == null) {
+            throw IllegalStateException(
+                "variant='$variant'와 'control'에 해당하는 @PrismStrategy를 찾을 수 없습니다. " +
                     "experimentKey=$experimentKey, interface=${strategyInterface.simpleName}"
             )
+        }
 
         return strategy as T
+    }
+
+    /**
+     * userId를 로그에 안전하게 출력하기 위해 마스킹합니다.
+     * 예: "user-12345678" -> "us***78"
+     */
+    private fun maskUserId(userId: String): String {
+        return when {
+            userId.length <= 4 -> "****"
+            else -> "${userId.take(2)}***${userId.takeLast(2)}"
+        }
     }
 
     /**

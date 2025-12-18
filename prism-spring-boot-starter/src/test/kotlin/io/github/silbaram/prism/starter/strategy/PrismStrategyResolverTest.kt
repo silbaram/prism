@@ -92,26 +92,78 @@ class PrismStrategyResolverTest {
     }
 
     @Test
-    fun `variant가 null이면 예외가 발생한다`() {
-        // Given: variant가 할당되지 않음 (control 전략도 없음)
+    fun `Fallback 테스트 - variant 전략이 없으면 control로 폴백한다`() {
+        // Given: variant "C"가 할당됐지만 해당 전략이 없음
         every { mockPrismClient.assign("user-789", "pricing_strategy") } returns AssignmentResponse(
             userId = "user-789",
             experimentKey = "pricing_strategy",
-            variant = null,
-            resultCode = ResponseCode.EXPERIMENT_NOT_FOUND.code,
-            resultMessage = "Experiment not found"
+            variant = "C",  // 존재하지 않는 variant
+            resultCode = ResponseCode.SUCCESS.code,
+            resultMessage = "Success"
+        )
+
+        val strategyA = TestPricingStrategyA()
+        val strategyControl = TestPricingStrategyControl()
+        every { mockApplicationContext.getBeansOfType(TestPricingStrategy::class.java) } returns mapOf(
+            "strategyA" to strategyA,
+            "strategyControl" to strategyControl
+        )
+
+        // When: 전략 선택
+        val strategy = resolver.resolve<TestPricingStrategy>("user-789", "pricing_strategy")
+
+        // Then: control 전략이 반환됨
+        val result = strategy.calculatePrice(1000)
+        assertEquals(1000, result, "variant C 전략이 없으므로 control로 폴백해야 함")
+    }
+
+    @Test
+    fun `Fallback 테스트 - variant와 control 모두 없으면 예외가 발생한다`() {
+        // Given: variant "D"가 할당되고, control 전략도 없음
+        every { mockPrismClient.assign("user-999", "pricing_strategy") } returns AssignmentResponse(
+            userId = "user-999",
+            experimentKey = "pricing_strategy",
+            variant = "D",
+            resultCode = ResponseCode.SUCCESS.code,
+            resultMessage = "Success"
         )
 
         val strategyA = TestPricingStrategyA()
         every { mockApplicationContext.getBeansOfType(TestPricingStrategy::class.java) } returns mapOf(
             "strategyA" to strategyA
+            // control 전략 없음!
         )
 
         // When & Then: 예외 발생
         val exception = assertThrows<IllegalStateException> {
-            resolver.resolve<TestPricingStrategy>("user-789", "pricing_strategy")
+            resolver.resolve<TestPricingStrategy>("user-999", "pricing_strategy")
         }
-        assertTrue(exception.message!!.contains("variant='control'"))
+        assertTrue(exception.message!!.contains("variant='D'"))
+        assertTrue(exception.message!!.contains("'control'"))
+    }
+
+    @Test
+    fun `Fallback 테스트 - control variant가 할당되면 폴백 없이 바로 실행된다`() {
+        // Given: control이 할당됨
+        every { mockPrismClient.assign("user-control", "pricing_strategy") } returns AssignmentResponse(
+            userId = "user-control",
+            experimentKey = "pricing_strategy",
+            variant = "control",
+            resultCode = ResponseCode.SUCCESS.code,
+            resultMessage = "Success"
+        )
+
+        val strategyControl = TestPricingStrategyControl()
+        every { mockApplicationContext.getBeansOfType(TestPricingStrategy::class.java) } returns mapOf(
+            "strategyControl" to strategyControl
+        )
+
+        // When: 전략 선택
+        val strategy = resolver.resolve<TestPricingStrategy>("user-control", "pricing_strategy")
+
+        // Then: control 전략이 실행됨
+        val result = strategy.calculatePrice(1000)
+        assertEquals(1000, result)
     }
 
     // 테스트용 인터페이스 및 구현체
@@ -127,6 +179,11 @@ class PrismStrategyResolverTest {
     @PrismStrategy(variant = "B", experimentKey = "pricing_strategy")
     class TestPricingStrategyB : TestPricingStrategy {
         override fun calculatePrice(amount: Int): Int = (amount * 0.8).toInt()  // 20% 할인
+    }
+
+    @PrismStrategy(variant = "control", experimentKey = "pricing_strategy")
+    class TestPricingStrategyControl : TestPricingStrategy {
+        override fun calculatePrice(amount: Int): Int = amount  // 할인 없음
     }
 
     interface TestCheckoutStrategy {
