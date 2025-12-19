@@ -60,38 +60,52 @@ class PrismVariantMethodRouter(
      * @throws NoSuchMethodException control 메서드조차 찾을 수 없는 경우
      */
     fun <T> route(instance: Any, userId: String, experimentKey: String, vararg args: Any?): T {
-        // 1. variant 할당
+        val variant = assignVariant(userId, experimentKey)
+        val method = resolveMethod(instance.javaClass, experimentKey, variant)
+        return executeMethod(method, instance, args)
+    }
+
+    /**
+     * 사용자에게 variant를 할당합니다.
+     */
+    private fun assignVariant(userId: String, experimentKey: String): String {
         val outcome = prismExperimentClient.assign(userId, experimentKey)
         val variant = outcome.variant ?: "control"
-
         logger.debug { "라우팅: experimentKey=$experimentKey, userId=$userId, variant=$variant" }
+        return variant
+    }
 
-        // 2. 해당 variant의 메서드 찾기
-        var method = findMethodForVariant(instance.javaClass, experimentKey, variant)
+    /**
+     * variant에 맞는 메서드를 찾습니다. 찾지 못하면 control로 폴백합니다.
+     */
+    private fun resolveMethod(clazz: Class<*>, experimentKey: String, variant: String): Method {
+        var method = findMethodForVariant(clazz, experimentKey, variant)
 
-        // 3. 메서드를 찾지 못하면 control로 폴백 (Fail-safe)
+        // Fail-safe: variant 메서드를 찾지 못하면 control로 폴백
         if (method == null && variant != "control") {
             logger.warn {
                 "Variant method not found, falling back to 'control'. " +
-                "variant='$variant', experimentKey=$experimentKey, class=${instance.javaClass.simpleName}, userId=${maskUserId(userId)}"
+                "variant='$variant', experimentKey=$experimentKey, class=${clazz.simpleName}"
             }
-            method = findMethodForVariant(instance.javaClass, experimentKey, "control")
+            method = findMethodForVariant(clazz, experimentKey, "control")
         }
 
-        // 4. control도 없으면 예외 발생
-        if (method == null) {
-            throw NoSuchMethodException(
-                "variant='$variant'와 'control'에 해당하는 @PrismVariantMethod를 찾을 수 없습니다. " +
-                    "experimentKey=$experimentKey, class=${instance.javaClass.simpleName}"
-            )
-        }
+        // control도 없으면 예외 발생
+        return method ?: throw NoSuchMethodException(
+            "variant='$variant'와 'control'에 해당하는 @PrismVariantMethod를 찾을 수 없습니다. " +
+                "experimentKey=$experimentKey, class=${clazz.simpleName}"
+        )
+    }
 
-        // 5. 메서드 실행
+    /**
+     * 메서드를 실행하고 결과를 반환합니다.
+     */
+    private fun <T> executeMethod(method: Method, instance: Any, args: Array<out Any?>): T {
         return try {
             @Suppress("UNCHECKED_CAST")
             method.invoke(instance, *args) as T
         } catch (e: Exception) {
-            logger.error(e) { "메서드 실행 실패: method=${method.name}, experimentKey=$experimentKey, variant=$variant" }
+            logger.error(e) { "메서드 실행 실패: method=${method.name}, class=${instance.javaClass.simpleName}" }
             throw e
         }
     }

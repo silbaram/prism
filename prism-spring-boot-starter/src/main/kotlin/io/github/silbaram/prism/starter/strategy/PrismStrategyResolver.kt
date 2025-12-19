@@ -131,6 +131,8 @@ class PrismStrategyResolver(
      *
      * Proxy-Safe: AnnotationUtils.findAnnotation()은 Spring AOP 프록시 체인을 자동으로 추적하여
      * 실제 타겟 클래스의 어노테이션을 찾습니다. (@Transactional, @Async 등의 프록시 환경에서도 안전)
+     *
+     * Type-Safe: Bean이 요구된 인터페이스를 구현하는지 명시적으로 검증하여 LSP를 준수합니다.
      */
     private fun scanStrategiesForExperiment(
         strategyInterface: Class<*>,
@@ -145,6 +147,15 @@ class PrismStrategyResolver(
             // Issue 2 수정: 프록시 객체에서도 어노테이션을 찾을 수 있도록 AnnotationUtils 사용
             val annotation = AnnotationUtils.findAnnotation(bean.javaClass, PrismStrategy::class.java)
             if (annotation != null && annotation.experimentKey == experimentKey) {
+                // LSP 준수: 타입 호환성 명시적 검증
+                if (!strategyInterface.isInstance(bean)) {
+                    throw IllegalStateException(
+                        "@PrismStrategy Bean이 요구 인터페이스를 구현하지 않습니다. " +
+                        "expected=${strategyInterface.name}, actual=${bean.javaClass.name}, " +
+                        "variant=${annotation.variant}, experimentKey=$experimentKey"
+                    )
+                }
+
                 result[annotation.variant] = bean
                 logger.debug {
                     "전략 등록: interface=${strategyInterface.simpleName}, experimentKey=$experimentKey, " +
