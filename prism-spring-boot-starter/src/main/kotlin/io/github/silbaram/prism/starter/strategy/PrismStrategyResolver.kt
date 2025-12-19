@@ -2,7 +2,7 @@ package io.github.silbaram.prism.starter.strategy
 
 import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.annotation.PrismStrategy
-import org.slf4j.LoggerFactory
+import io.github.silbaram.prism.starter.util.logger
 import org.springframework.context.ApplicationContext
 import org.springframework.core.annotation.AnnotationUtils
 import org.springframework.stereotype.Component
@@ -42,7 +42,7 @@ class PrismStrategyResolver(
     private val applicationContext: ApplicationContext,
     private val prismExperimentClient: PrismExperimentClient
 ) {
-    private val logger = LoggerFactory.getLogger(javaClass)
+    private val logger = logger()
 
     // 전략 캐시: (인터페이스 타입 -> experimentKey -> variant -> Bean)
     // Thread-safe를 위해 ConcurrentHashMap 사용
@@ -68,18 +68,17 @@ class PrismStrategyResolver(
         val outcome = prismExperimentClient.assign(userId, experimentKey)
         val variant = outcome.variant ?: "control"
 
-        logger.debug("전략 선택: experimentKey=$experimentKey, userId=$userId, variant=$variant")
+        logger.debug { "전략 선택: experimentKey=$experimentKey, userId=$userId, variant=$variant" }
 
         // 2. 해당 variant의 전략 찾기
         var strategy = findStrategyForVariant(strategyInterface, experimentKey, variant)
 
         // 3. 전략을 찾지 못하면 control로 폴백 (Fail-safe)
         if (strategy == null && variant != "control") {
-            logger.warn(
+            logger.warn {
                 "Strategy not found, falling back to 'control'. " +
-                "variant='{}', experimentKey={}, interface={}, userId={}",
-                variant, experimentKey, strategyInterface.simpleName, maskUserId(userId)
-            )
+                "variant='$variant', experimentKey=$experimentKey, interface=${strategyInterface.simpleName}, userId=${maskUserId(userId)}"
+            }
             strategy = findStrategyForVariant(strategyInterface, experimentKey, "control")
         }
 
@@ -147,10 +146,10 @@ class PrismStrategyResolver(
             val annotation = AnnotationUtils.findAnnotation(bean.javaClass, PrismStrategy::class.java)
             if (annotation != null && annotation.experimentKey == experimentKey) {
                 result[annotation.variant] = bean
-                logger.debug(
+                logger.debug {
                     "전략 등록: interface=${strategyInterface.simpleName}, experimentKey=$experimentKey, " +
                         "variant=${annotation.variant}, class=${bean.javaClass.simpleName}"
-                )
+                }
             }
         }
 

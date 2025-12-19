@@ -2,7 +2,7 @@ package io.github.silbaram.prism.starter.routing
 
 import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.annotation.PrismVariantMethod
-import org.slf4j.LoggerFactory
+import io.github.silbaram.prism.starter.util.logger
 import org.springframework.core.annotation.AnnotationUtils
 import org.springframework.stereotype.Component
 import java.lang.reflect.Method
@@ -39,7 +39,7 @@ import java.util.concurrent.ConcurrentHashMap
 class PrismVariantMethodRouter(
     private val prismExperimentClient: PrismExperimentClient
 ) {
-    private val logger = LoggerFactory.getLogger(javaClass)
+    private val logger = logger()
 
     // 메서드 캐시: (클래스 -> experimentKey -> variant -> Method)
     // Thread-safe를 위해 ConcurrentHashMap 사용
@@ -64,18 +64,17 @@ class PrismVariantMethodRouter(
         val outcome = prismExperimentClient.assign(userId, experimentKey)
         val variant = outcome.variant ?: "control"
 
-        logger.debug("라우팅: experimentKey=$experimentKey, userId=$userId, variant=$variant")
+        logger.debug { "라우팅: experimentKey=$experimentKey, userId=$userId, variant=$variant" }
 
         // 2. 해당 variant의 메서드 찾기
         var method = findMethodForVariant(instance.javaClass, experimentKey, variant)
 
         // 3. 메서드를 찾지 못하면 control로 폴백 (Fail-safe)
         if (method == null && variant != "control") {
-            logger.warn(
+            logger.warn {
                 "Variant method not found, falling back to 'control'. " +
-                "variant='{}', experimentKey={}, class={}, userId={}",
-                variant, experimentKey, instance.javaClass.simpleName, maskUserId(userId)
-            )
+                "variant='$variant', experimentKey=$experimentKey, class=${instance.javaClass.simpleName}, userId=${maskUserId(userId)}"
+            }
             method = findMethodForVariant(instance.javaClass, experimentKey, "control")
         }
 
@@ -89,11 +88,10 @@ class PrismVariantMethodRouter(
 
         // 5. 메서드 실행
         return try {
-            method.isAccessible = true
             @Suppress("UNCHECKED_CAST")
             method.invoke(instance, *args) as T
         } catch (e: Exception) {
-            logger.error("메서드 실행 실패: method=${method.name}, experimentKey=$experimentKey, variant=$variant", e)
+            logger.error(e) { "메서드 실행 실패: method=${method.name}, experimentKey=$experimentKey, variant=$variant" }
             throw e
         }
     }
@@ -132,6 +130,9 @@ class PrismVariantMethodRouter(
      *
      * Proxy-Safe: AnnotationUtils.findAnnotation()은 Spring AOP 프록시 환경에서도
      * 메서드 어노테이션을 안전하게 찾습니다.
+     *
+     * Performance: 메서드를 캐싱할 때 isAccessible을 true로 설정하여
+     * 매 호출마다 접근성 검사를 하지 않도록 최적화합니다.
      */
     private fun scanMethodsForExperiment(clazz: Class<*>, experimentKey: String): ConcurrentHashMap<String, Method> {
         val result = ConcurrentHashMap<String, Method>()
@@ -140,11 +141,13 @@ class PrismVariantMethodRouter(
             // Issue 2 수정: 프록시 환경에서도 어노테이션을 찾을 수 있도록 AnnotationUtils 사용
             val annotation = AnnotationUtils.findAnnotation(method, PrismVariantMethod::class.java)
             if (annotation != null && annotation.experimentKey == experimentKey) {
+                // 캐싱 시점에 한 번만 접근성 설정 (스레드 안전)
+                method.isAccessible = true
                 result[annotation.variant] = method
-                logger.debug(
+                logger.debug {
                     "메서드 등록: class=${clazz.simpleName}, experimentKey=$experimentKey, " +
                         "variant=${annotation.variant}, method=${method.name}"
-                )
+                }
             }
         }
 
