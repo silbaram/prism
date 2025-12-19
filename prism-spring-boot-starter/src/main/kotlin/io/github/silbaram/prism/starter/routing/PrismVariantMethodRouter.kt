@@ -3,6 +3,7 @@ package io.github.silbaram.prism.starter.routing
 import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.annotation.PrismVariantMethod
 import org.slf4j.LoggerFactory
+import org.springframework.core.annotation.AnnotationUtils
 import org.springframework.stereotype.Component
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
@@ -111,11 +112,14 @@ class PrismVariantMethodRouter(
     /**
      * 특정 experimentKey와 variant에 해당하는 메서드를 찾습니다.
      * 메서드는 캐싱되어 재사용됩니다.
+     *
+     * Thread-Safety: computeIfAbsent는 원자적 연산을 보장하므로,
+     * 동시에 여러 스레드가 호출하더라도 scanMethodsForExperiment()는 단 한 번만 실행됩니다.
      */
     private fun findMethodForVariant(clazz: Class<*>, experimentKey: String, variant: String): Method? {
-        // 캐시 확인
-        val classCache = methodCache.getOrPut(clazz) { ConcurrentHashMap() }
-        val experimentCache = classCache.getOrPut(experimentKey) {
+        // 캐시 확인 (Issue 1 수정: getOrPut → computeIfAbsent)
+        val classCache = methodCache.computeIfAbsent(clazz) { ConcurrentHashMap() }
+        val experimentCache = classCache.computeIfAbsent(experimentKey) {
             // 캐시 미스: 클래스를 스캔해서 해당 experimentKey의 모든 메서드 수집
             scanMethodsForExperiment(clazz, experimentKey)
         }
@@ -125,12 +129,16 @@ class PrismVariantMethodRouter(
 
     /**
      * 클래스에서 특정 experimentKey를 가진 @PrismVariantMethod 메서드를 모두 찾아 맵으로 반환합니다.
+     *
+     * Proxy-Safe: AnnotationUtils.findAnnotation()은 Spring AOP 프록시 환경에서도
+     * 메서드 어노테이션을 안전하게 찾습니다.
      */
     private fun scanMethodsForExperiment(clazz: Class<*>, experimentKey: String): ConcurrentHashMap<String, Method> {
         val result = ConcurrentHashMap<String, Method>()
 
         clazz.declaredMethods.forEach { method ->
-            val annotation = method.getAnnotation(PrismVariantMethod::class.java)
+            // Issue 2 수정: 프록시 환경에서도 어노테이션을 찾을 수 있도록 AnnotationUtils 사용
+            val annotation = AnnotationUtils.findAnnotation(method, PrismVariantMethod::class.java)
             if (annotation != null && annotation.experimentKey == experimentKey) {
                 result[annotation.variant] = method
                 logger.debug(

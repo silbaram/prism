@@ -4,6 +4,7 @@ import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.annotation.PrismStrategy
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationContext
+import org.springframework.core.annotation.AnnotationUtils
 import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
 
@@ -107,15 +108,18 @@ class PrismStrategyResolver(
     /**
      * 특정 experimentKey와 variant에 해당하는 전략 Bean을 찾습니다.
      * 전략은 캐싱되어 재사용됩니다.
+     *
+     * Thread-Safety: computeIfAbsent는 원자적 연산을 보장하므로,
+     * 동시에 여러 스레드가 호출하더라도 scanStrategiesForExperiment()는 단 한 번만 실행됩니다.
      */
     private fun findStrategyForVariant(
         strategyInterface: Class<*>,
         experimentKey: String,
         variant: String
     ): Any? {
-        // 캐시 확인
-        val interfaceCache = strategyCache.getOrPut(strategyInterface) { ConcurrentHashMap() }
-        val experimentCache = interfaceCache.getOrPut(experimentKey) {
+        // 캐시 확인 (Issue 1 수정: getOrPut → computeIfAbsent)
+        val interfaceCache = strategyCache.computeIfAbsent(strategyInterface) { ConcurrentHashMap() }
+        val experimentCache = interfaceCache.computeIfAbsent(experimentKey) {
             // 캐시 미스: ApplicationContext를 스캔해서 해당 experimentKey의 모든 전략 수집
             scanStrategiesForExperiment(strategyInterface, experimentKey)
         }
@@ -125,6 +129,9 @@ class PrismStrategyResolver(
 
     /**
      * ApplicationContext에서 특정 인터페이스와 experimentKey를 가진 @PrismStrategy Bean을 모두 찾아 맵으로 반환합니다.
+     *
+     * Proxy-Safe: AnnotationUtils.findAnnotation()은 Spring AOP 프록시 체인을 자동으로 추적하여
+     * 실제 타겟 클래스의 어노테이션을 찾습니다. (@Transactional, @Async 등의 프록시 환경에서도 안전)
      */
     private fun scanStrategiesForExperiment(
         strategyInterface: Class<*>,
@@ -136,7 +143,8 @@ class PrismStrategyResolver(
         val beans = applicationContext.getBeansOfType(strategyInterface)
 
         beans.values.forEach { bean ->
-            val annotation = bean.javaClass.getAnnotation(PrismStrategy::class.java)
+            // Issue 2 수정: 프록시 객체에서도 어노테이션을 찾을 수 있도록 AnnotationUtils 사용
+            val annotation = AnnotationUtils.findAnnotation(bean.javaClass, PrismStrategy::class.java)
             if (annotation != null && annotation.experimentKey == experimentKey) {
                 result[annotation.variant] = bean
                 logger.debug(
