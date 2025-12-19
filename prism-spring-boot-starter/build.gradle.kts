@@ -36,6 +36,9 @@ dependencies {
     // Jackson Kotlin 모듈
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.15.2")
 
+    // Kotlin Logging (SLF4J Kotlin extension for lazy evaluation)
+    implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
+
     // Spring Boot Configuration Processor (IDE 자동완성 지원)
     kapt("org.springframework.boot:spring-boot-configuration-processor:3.5.8")
 
