@@ -3,6 +3,7 @@ package io.github.silbaram.prism.starter
 import io.github.silbaram.prism.sdk.PrismClient
 import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.aop.PrismExperimentAspect
+import io.github.silbaram.prism.starter.aop.PrismTrackConversionAspect
 import io.github.silbaram.prism.starter.routing.PrismVariantMethodRouter
 import io.github.silbaram.prism.starter.service.PrismConversionTracker
 import io.github.silbaram.prism.starter.strategy.PrismStrategyResolver
@@ -53,6 +54,13 @@ class PrismAutoConfiguration(
     @ConditionalOnMissingBean
     fun prismConversionTracker(prismClient: PrismClient): PrismConversionTracker {
         return PrismConversionTracker(prismClient)
+    }
+
+    @Bean
+    @ConditionalOnBean(PrismClient::class)
+    @ConditionalOnMissingBean
+    fun prismTrackConversionAspect(prismClient: PrismClient): PrismTrackConversionAspect {
+        return PrismTrackConversionAspect(prismClient)
     }
 
     @Bean
