@@ -210,6 +210,267 @@ class CheckoutService(
   - 할당되지 않은 사용자는 자동으로 제외 (통계 오염 방지)
 - `eventName`: 추적할 이벤트 이름 (예: "purchase", "signup", "click" 등)
 
+### STEP 3-2: 어노테이션으로 자동 전환 추적하기 (@PrismTrackConversion)
+
+`PrismConversionTracker`를 직접 호출하는 대신, `@PrismTrackConversion` 어노테이션을 사용하면 메서드 실행 후 자동으로 전환 이벤트를 추적할 수 있습니다.
+
+```kotlin
+import io.github.silbaram.prism.starter.annotation.PrismTrackConversion
+import io.github.silbaram.prism.starter.annotation.PrismUserId
+
+@Service
+class CheckoutService {
+
+    @PrismExperiment(experimentKey = "discount_ab_test")
+    fun showCheckoutPage(@PrismUserId userId: String) {
+        // 체크아웃 페이지 표시
+    }
+
+    // 메서드 실행 후 자동으로 전환 이벤트 추적
+    @PrismTrackConversion(
+        experimentKey = "discount_ab_test",
+        eventName = "purchase"
+    )
+    fun completePurchase(@PrismUserId userId: String, amount: Int): Boolean {
+        // 결제 로직
+        processPurchase(userId, amount)
+
+        // 메서드가 정상 종료되면 자동으로 전환 추적됨
+        return true
+    }
+
+    private fun processPurchase(userId: String, amount: Int) {
+        // 실제 구매 로직...
+    }
+}
+```
+
+**동작 방식**:
+1. 메서드가 정상적으로 실행됨
+2. 실행 성공 시, `PrismContext.wasActuallyAssigned()`를 자동으로 체크
+3. 실제로 할당받은 경우에만 전환 API 호출 (통계 오염 방지)
+
+**trackOnException 옵션**:
+
+기본적으로 메서드 실행 중 예외가 발생하면 전환을 추적하지 않습니다. 하지만 `trackOnException=true`를 설정하면 예외 발생 시에도 전환을 추적할 수 있습니다.
+
+```kotlin
+@Service
+class PaymentService {
+
+    // 결제 시도는 성공/실패 여부와 관계없이 추적
+    @PrismTrackConversion(
+        experimentKey = "payment-flow",
+        eventName = "payment_attempt",
+        trackOnException = true  // 예외 발생 시에도 전환 추적
+    )
+    fun attemptPayment(@PrismUserId userId: String, amount: Int): Boolean {
+        if (amount <= 0) {
+            throw IllegalArgumentException("Invalid amount")
+            // 예외 발생해도 전환 이벤트 기록됨
+        }
+        return processPayment(userId, amount)
+    }
+
+    // 결제 성공만 추적 (기본 동작)
+    @PrismTrackConversion(
+        experimentKey = "payment-flow",
+        eventName = "payment_success"
+        // trackOnException = false (기본값)
+    )
+    fun confirmPayment(@PrismUserId userId: String): Boolean {
+        // 정상 완료된 경우만 전환 추적됨
+        return true
+    }
+}
+```
+
+**trackWhen 옵션** (반환값 기반 조건부 추적):
+
+메서드의 반환값에 따라 전환 추적 여부를 자동으로 결정할 수 있습니다. 성공/실패를 구분하거나, 결과 존재 여부에 따라 추적하는 경우 유용합니다.
+
+```kotlin
+@Service
+class PaymentService {
+
+    // Boolean true 반환 시에만 추적 (성공 케이스)
+    @PrismTrackConversion(
+        experimentKey = "payment-flow",
+        eventName = "payment_success",
+        trackWhen = TrackCondition.RETURN_TRUE
+    )
+    fun processPayment(@PrismUserId userId: String, amount: Int): Boolean {
+        val success = chargeCard(userId, amount)
+        return success  // true일 때만 전환 추적됨
+    }
+
+    // Boolean false 반환 시에만 추적 (실패 케이스 분석용)
+    @PrismTrackConversion(
+        experimentKey = "payment-flow",
+        eventName = "payment_failed",
+        trackWhen = TrackCondition.RETURN_FALSE
+    )
+    fun attemptPayment(@PrismUserId userId: String, amount: Int): Boolean {
+        return processPayment(userId, amount)  // false일 때만 추적
+    }
+}
+```
+
+```kotlin
+@Service
+class RecommendationService {
+
+    // null이 아닐 때만 추적 (추천 성공)
+    @PrismTrackConversion(
+        experimentKey = "recommendation-algo",
+        eventName = "found_product",
+        trackWhen = TrackCondition.NOT_NULL
+    )
+    fun findRecommendation(@PrismUserId userId: String): Product? {
+        val product = newAlgorithm(userId)
+        return product  // 상품을 찾았을 때만 추적
+    }
+
+    // null일 때만 추적 (추천 실패 분석용)
+    @PrismTrackConversion(
+        experimentKey = "recommendation-algo",
+        eventName = "no_match",
+        trackWhen = TrackCondition.IS_NULL
+    )
+    fun searchProduct(@PrismUserId userId: String): Product? {
+        return findRecommendation(userId)  // 못 찾았을 때만 추적
+    }
+}
+```
+
+**TrackCondition 옵션**:
+- `ALWAYS` (기본값): 항상 추적
+- `RETURN_TRUE`: Boolean 반환값이 true일 때만
+- `RETURN_FALSE`: Boolean 반환값이 false일 때만
+- `NOT_NULL`: 반환값이 null이 아닐 때만
+- `IS_NULL`: 반환값이 null일 때만
+
+**여러 이벤트 동시 추적**:
+
+하나의 메서드에 `@PrismTrackConversion` 어노테이션을 여러 번 사용하여 동시에 여러 이벤트를 추적할 수 있습니다. 이는 퍼널 분석(Funnel Analysis)이나 단계별 이벤트 추적에 유용합니다.
+
+```kotlin
+@Service
+class SignupService {
+
+    // 페이지 진입과 폼 시작을 동시에 추적
+    @PrismTrackConversion(experimentKey = "signup", eventName = "page_viewed")
+    @PrismTrackConversion(experimentKey = "signup", eventName = "form_started")
+    fun showSignupForm(@PrismUserId userId: String) {
+        // 두 이벤트가 모두 자동으로 기록됨
+        // - signup/page_viewed: 페이지 조회
+        // - signup/form_started: 폼 시작
+    }
+}
+```
+
+**조건부 다중 이벤트**:
+
+`trackWhen` 옵션과 함께 사용하면 일부 이벤트는 항상 추적하고, 일부는 조건부로 추적할 수 있습니다.
+
+```kotlin
+@Service
+class SignupService {
+
+    // submitted는 항상 기록, success는 성공 시에만 기록
+    @PrismTrackConversion(experimentKey = "signup", eventName = "submitted")
+    @PrismTrackConversion(
+        experimentKey = "signup",
+        eventName = "success",
+        trackWhen = TrackCondition.RETURN_TRUE
+    )
+    fun submitSignup(@PrismUserId userId: String, email: String): Boolean {
+        val success = registerUser(userId, email)
+        // submitted 이벤트: 항상 기록
+        // success 이벤트: success가 true일 때만 기록
+        return success
+    }
+
+    private fun registerUser(userId: String, email: String): Boolean {
+        // 실제 회원가입 로직
+        return true
+    }
+}
+```
+
+**퍼널 분석 예시**:
+
+전환 퍼널의 각 단계를 자동으로 추적할 수 있습니다.
+
+```kotlin
+@Service
+class CheckoutService {
+
+    // 체크아웃 페이지 진입
+    @PrismTrackConversion(experimentKey = "checkout-flow", eventName = "page_viewed")
+    fun showCheckoutPage(@PrismUserId userId: String) {
+        // page_viewed 이벤트 기록
+    }
+
+    // 배송 정보 입력
+    @PrismTrackConversion(experimentKey = "checkout-flow", eventName = "shipping_filled")
+    fun saveShippingInfo(@PrismUserId userId: String, address: String) {
+        // shipping_filled 이벤트 기록
+    }
+
+    // 결제 시도 및 성공
+    @PrismTrackConversion(experimentKey = "checkout-flow", eventName = "payment_attempted")
+    @PrismTrackConversion(
+        experimentKey = "checkout-flow",
+        eventName = "payment_success",
+        trackWhen = TrackCondition.RETURN_TRUE
+    )
+    fun processPayment(@PrismUserId userId: String, amount: Int): Boolean {
+        val success = chargeCard(userId, amount)
+        // payment_attempted: 항상 기록
+        // payment_success: success가 true일 때만 기록
+        return success
+    }
+
+    private fun chargeCard(userId: String, amount: Int): Boolean {
+        // 실제 결제 로직
+        return true
+    }
+}
+```
+
+**분석 결과 예시**:
+
+위 퍼널을 추적하면 다음과 같은 분석이 가능합니다:
+
+```
+A 그룹 (기존 UI):
+  page_viewed: 1000명
+  shipping_filled: 600명 (60% 이탈)
+  payment_attempted: 400명 (66.7% → 33.3% 이탈)
+  payment_success: 300명 (75% 성공률)
+
+B 그룹 (개선된 UI):
+  page_viewed: 1000명
+  shipping_filled: 800명 (20% 이탈) ✅ 개선
+  payment_attempted: 650명 (81.25% → 18.75% 이탈) ✅ 개선
+  payment_success: 550명 (84.6% 성공률) ✅ 개선
+```
+
+**주의사항**:
+- 동일한 메서드에 같은 eventName을 중복 사용하지 마세요 (의미 없는 중복 기록)
+- 모든 어노테이션은 `PrismContext.wasActuallyAssigned()`를 개별적으로 체크하므로, 할당되지 않은 경우 모든 이벤트가 스킵됩니다
+- trackOnException과 trackWhen은 각 어노테이션마다 독립적으로 적용됩니다
+
+**장점**:
+- 코드가 더 깔끔해짐 (수동 호출 불필요)
+- 전환 추적 로직 누락 방지
+- 자동으로 안전하게 추적 (할당 체크 자동 수행)
+- 반환값 기반 조건부 추적으로 성공/실패 구분 가능
+
+**단점**:
+- 복잡한 조건부 전환 추적이 필요한 경우 `PrismConversionTracker` 직접 사용 권장
+
 ### 전체 예제: 할인 A/B 테스트
 
 ```kotlin
@@ -895,6 +1156,7 @@ fun processA(data: Data): Result {
 | `PrismExperimentClient` | 안전한 할당 및 전환 추적 |
 | `PrismConversionTracker` | 안전한 전환 추적 전용 |
 | `PrismExperimentAspect` | @PrismExperiment 처리 |
+| `PrismTrackConversionAspect` | @PrismTrackConversion 처리 |
 | `PrismVariantMethodRouter` | 메서드 라우팅 |
 | `PrismStrategyResolver` | 전략 패턴 지원 |
 
