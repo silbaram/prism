@@ -69,3 +69,43 @@ subprojects {
         jvmArgs("-Dkotest.framework.classpath.scanning.autoscan.disable=true")
     }
 }
+
+// PrismClient.trackConversion 직접 호출 금지 (PrismExperimentClient/trackConversionIfAssigned 사용)
+val forbidDirectPrismClientTrackConversion by tasks.registering {
+    group = "verification"
+    description = "PrismClient.trackConversion 직접 호출을 금지합니다. 래퍼를 사용하세요."
+
+    doLast {
+        val root = rootDir
+        val violations = mutableListOf<String>()
+
+        fileTree(root) {
+            include("**/*.kt")
+            exclude("prism-sdk/**", "prism-spring-boot-starter/**", "**/build/**", "**/.gradle/**")
+        }.forEach { file ->
+            val content = file.readText()
+            if (content.contains("import io.github.silbaram.prism.sdk.PrismClient")) {
+                file.readLines().forEachIndexed { idx, line ->
+                    if (line.contains("trackConversion(")) {
+                        val relative = file.relativeTo(root).path
+                        violations += "$relative:${idx + 1}"
+                    }
+                }
+            }
+        }
+
+        if (violations.isNotEmpty()) {
+            val message = buildString {
+                appendLine("PrismClient.trackConversion 직접 호출 금지. PrismExperimentClient/trackConversionIfAssigned를 사용하세요.")
+                violations.forEach { appendLine("- $it") }
+            }
+            throw GradleException(message)
+        }
+    }
+}
+
+subprojects {
+    tasks.matching { it.name == "check" }.configureEach {
+        dependsOn(rootProject.tasks.named("forbidDirectPrismClientTrackConversion"))
+    }
+}

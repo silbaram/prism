@@ -4,18 +4,18 @@ plugins {
     `maven-publish` // Maven 저장소 배포 플러그인
 }
 
-dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
-    implementation("org.springframework:spring-expression")
-    implementation("org.springframework:spring-context")
-}
-
 tasks.bootJar {
     enabled = false
 }
 
 tasks.jar {
     enabled = true
+}
+
+dependencies {
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
+    implementation("org.springframework:spring-expression")
+    implementation("org.springframework:spring-context")
 }
 
 // 소스 JAR 포함

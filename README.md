@@ -1,78 +1,56 @@
 # Prism (A/B Testing System)
 
-Prism은 확장 가능한 A/B 테스트 플랫폼입니다.
-무상태 분배 엔진, 실험 관리 Admin, 고성능 Traffic Serving API로 구성되어 있습니다.
+Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 고성능 Serving API로 구성된 확장 가능한 A/B 테스트 플랫폼입니다. SpEL 타기팅, MurmurHash 기반 분배, 실패 안전(Fail-safe) SDK를 제공합니다.
 
-## 1. 프로젝트 구조
-- **prism-core**: 핵심 도메인 로직 (MurmurHash, TrafficSplitter, Targeting). 순수 Kotlin 라이브러리.
-- **prism-common**: 모듈 간 공유되는 데이터 모델 및 공통 상수 (DTO, Enums).
-- **prism-sdk**: 클라이언트 애플리케이션 연동을 위한 Java/Kotlin 클라이언트 라이브러리.
-- **prism-spring-boot-starter**: Spring Boot 애플리케이션에서 SDK를 쉽게 설정하고 사용할 수 있도록 지원하는 스타터.
-- **prism-admin**: 실험 관리 및 통계 분석 서버 (Spring Boot, JPA).
-- **prism-api**: 트래픽 분배 및 로그 수집 서버 (Spring Boot, Caffeine, Async).
-- **prism-infrastructure**: 데이터베이스 엔티티 및 공통 인프라 설정 (JPA Entities, Schema).
+## 주요 특징
+- **무상태 트래픽 분배**: 고성능 API로 사용자별 변형(variant) 할당
+- **실험 관리/Admin**: 실험 생성·승자 판정·통계 뷰 제공
+- **Fail-safe SDK**: 네트워크/서버 장애 시에도 기본값으로 안전하게 동작
+- **Spring 통합**: `@PrismExperiment` 어노테이션과 안전한 전환 추적 래퍼 제공
 
-## 2. 시작하기 (Getting Started)
+## 프로젝트 구조
+- **prism-core**: MurmurHash 기반 트래픽 분배 및 SpEL 타기팅 유틸리티
+- **prism-common**: 공용 DTO 및 상수 모음 (`ResponseCode` 등)
+- **prism-api**: 트래픽 분배/로그 수집 API 서비스
+- **prism-admin**: 실험 생성·승자 판정·통계 조회용 Admin 서비스
+- **prism-sdk**: Java/Kotlin 클라이언트 SDK (자세한 내용은 `prism-sdk/README.md`)
+- **prism-spring-boot-starter**: Spring Boot 통합 스타터 (자세한 내용은 `prism-spring-boot-starter/README.md`)
+- **prism-infrastructure**: JPA 엔티티와 스키마 정의
 
-### 필수 요구사항
-- JDK 17 이상
-- Docker & Docker Compose (로컬 DB 실행용)
-- Gradle (또는 IntelliJ IDEA 사용 권장)
-
-### 로컬 개발 환경 설정 (Local Setup)
-**1. 데이터베이스 실행**
-프로젝트 루트의 `docker` 디렉토리에서 Docker Compose를 실행하여 MySQL 데이터베이스를 준비합니다.
+## 빠른 시작
 ```bash
+# 의존성 설치 없이 Gradle 래퍼 사용을 권장합니다.
+# 1) 로컬 DB (MySQL 예시)
 cd docker
 docker-compose up -d
-```
-이 명령어는 MySQL 컨테이너를 실행하고, `prism-infrastructure` 모듈의 `schema.sql`을 사용하여 테이블을 자동으로 생성합니다.
 
-**2. 애플리케이션 실행**
-데이터베이스가 준비되면 애플리케이션을 실행할 수 있습니다.
+# 2) 전체 빌드/테스트
+cd ..
+./gradlew clean build
 
-### 빌드 및 테스트
-이 프로젝트는 Gradle을 사용합니다. 터미널에 `gradle`이 설치되어 있지 않다면, **IntelliJ IDEA**로 프로젝트를 열어 실행하는 것을 권장합니다.
-
-```bash
-# 전체 테스트 실행
-./gradlew test
-
-# 모듈별 테스트 실행
-./gradlew :prism-core:test
-./gradlew :prism-common:test
-./gradlew :prism-api:test
-./gradlew :prism-admin:test
-./gradlew :prism-sdk:test
-```
-
-### 애플리케이션 실행
-**Admin 서버 실행** (포트 8080)
-```bash
+# 3) API/ADMIN 실행 (포트 조정은 각 모듈 application.yml 또는 환경변수)
+./gradlew :prism-api:bootRun
 ./gradlew :prism-admin:bootRun
 ```
 
-**API 서버 실행** (포트 8081 - 설정 필요)
-`prism-api`는 기본적으로 8080을 사용하므로, 동시에 띄우려면 `application.yml`에서 포트를 변경해야 합니다.
+## 빌드 및 실행
+- 필수 요구사항: JDK 17+, Docker Compose(로컬 DB), Gradle 래퍼
+- 빌드/테스트: `./gradlew test` 또는 `./gradlew clean build`
+- 실행:
+  - Admin: `./gradlew :prism-admin:bootRun` (기본 8070)
+  - API: `./gradlew :prism-api:bootRun` (기본 8080 → 동시 실행 시 `application.yml` 혹은 `SERVER_PORT` 환경변수로 변경)
+  - 로컬 DB: `cd docker && docker-compose up -d` (MySQL, 스키마는 `prism-infrastructure` 기준)
 
-## 3. 주요 기능
-- **실험 생성**: Admin API를 통해 실험(Variants, 타겟팅 규칙)을 생성합니다.
-- **트래픽 분배**: API 서버(`/v1/assign`)를 통해 사용자를 그룹에 할당합니다.
-- **로그 수집**: 할당 및 전환 로그가 비동기로 DB에 저장됩니다.
-- **통계 분석**: Admin API를 통해 실험별 CVR(전환율)과 승자를 확인합니다.
+## 포트·환경 변수 요약
+- Admin 기본 포트: 8070 (`prism-admin/src/main/resources/application.yml`)
+- API 기본 포트: 8080 (`prism-api/src/main/resources/application.yml`)
+- 포트 변경: `SERVER_PORT=<포트>` 환경 변수로 오버라이드하거나 각 모듈 `application.yml` 수정
+- DB 연결: `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` 등 환경 변수로 설정 가능
+- 프로필: `SPRING_PROFILES_ACTIVE=local` 등으로 환경 분리
 
-## 4. 클라이언트 연동 (Client Integration)
-Prism은 Java/Kotlin 애플리케이션을 위한 공식 SDK를 제공합니다.
-
-### Gradle 설정
-`prism-spring-boot-starter`를 사용하면 별도의 설정 없이 Spring 환경에서 쉽게 사용할 수 있습니다.
-
-```kotlin
-implementation("io.github.silbaram.prism:prism-spring-boot-starter:0.0.1-SNAPSHOT")
-```
-
-더 자세한 사용법은 [prism-spring-boot-starter README](prism-spring-boot-starter/README.md) 또는 [prism-sdk README](prism-sdk/README.md)를 참고하세요.
-
-## 5. 타겟팅 규칙 (SpEL)
-`prism-core`는 Spring Expression Language (SpEL)를 지원합니다.
-예: `age >= 20`, `os == 'iOS'`, `appVersion > '1.5'`
+## 문서
+- SDK 상세 사용법: `prism-sdk/README.md`
+- Spring Boot 통합 가이드: `prism-spring-boot-starter/README.md`
+- 빌드 시 `PrismClient.trackConversion` 직접 호출을 감지해 실패합니다. 통계 오염 방지를 위해 안전 래퍼를 사용하세요:
+  - SDK: `PrismExperimentClient.track()` 또는 `trackConversionIfAssigned()`
+  - Spring Boot: `PrismConversionTracker.trackConversionSafe()`
