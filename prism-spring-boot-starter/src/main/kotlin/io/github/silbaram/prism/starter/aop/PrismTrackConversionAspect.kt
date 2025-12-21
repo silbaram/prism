@@ -10,6 +10,8 @@ import org.aspectj.lang.annotation.Around
 import org.aspectj.lang.annotation.Aspect
 import org.aspectj.lang.reflect.MethodSignature
 import org.slf4j.LoggerFactory
+import java.lang.reflect.Method
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * @PrismTrackConversion 어노테이션이 붙은 메소드를 가로채서
@@ -22,6 +24,10 @@ import org.slf4j.LoggerFactory
  * 4. trackOnException=true인 경우 예외 발생 시에도 전환 추적
  * 5. 여러 @PrismTrackConversion 어노테이션이 있으면 모두 처리
  *
+ * **성능 최적화:**
+ * - 메소드 메타데이터 캐싱을 통해 Reflection 오버헤드 최소화
+ * - Debug 로그는 레벨 체크 후 생성
+ *
  * 주의: @Component를 사용하지 않습니다. PrismAutoConfiguration에서 @Bean으로 등록합니다.
  */
 @Aspect
@@ -29,6 +35,20 @@ class PrismTrackConversionAspect(
     private val prismClient: PrismClient
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
+
+    /**
+     * 메소드별 메타데이터 캐시 (Reflection 오버헤드 최소화)
+     */
+    private val methodMetadataCache = ConcurrentHashMap<Method, MethodMetadata>()
+
+    /**
+     * 메소드 메타데이터 (어노테이션, 파라미터 정보)
+     */
+    private data class MethodMetadata(
+        val annotations: List<PrismTrackConversion>,
+        val parameterAnnotations: Array<Array<Annotation>>,
+        val parameterNames: Array<String>
+    )
 
     @Around("@annotation(io.github.silbaram.prism.starter.annotation.PrismTrackConversion) || @annotation(io.github.silbaram.prism.starter.annotation.PrismTrackConversions)")
     fun handleTrackConversion(joinPoint: ProceedingJoinPoint): Any? {
@@ -45,23 +65,25 @@ class PrismTrackConversionAspect(
             thrownException = e
             throw e
         } finally {
-            // 3. 여러 @PrismTrackConversion 어노테이션 수집
-            val annotations = collectAnnotations(joinPoint)
+            // 3. 메소드 메타데이터 가져오기 (캐시 활용)
+            val metadata = getMethodMetadata(joinPoint)
 
             // 4. 각 어노테이션에 대해 전환 추적
-            annotations.forEach { annotation ->
+            metadata.annotations.forEach { annotation ->
                 try {
                     val shouldTrack = !exceptionOccurred || annotation.trackOnException
 
                     if (shouldTrack) {
-                        trackConversionIfAssigned(joinPoint, annotation, returnValue)
+                        trackConversionIfAssigned(joinPoint, metadata, annotation, returnValue)
                     } else {
-                        logger.debug(
-                            "전환 추적 스킵 (예외 발생): experimentKey=${annotation.experimentKey}, " +
-                            "eventName=${annotation.eventName}, exception=${thrownException?.javaClass?.simpleName}"
-                        )
+                        if (logger.isDebugEnabled) {
+                            logger.debug(
+                                "전환 추적 스킵 (예외 발생): experimentKey=${annotation.experimentKey}, " +
+                                "eventName=${annotation.eventName}, exception=${thrownException?.javaClass?.simpleName}"
+                            )
+                        }
                     }
-                } catch (trackingException: Exception) {
+                } catch (trackingException: Throwable) {
                     // 전환 추적 실패는 비즈니스 로직에 영향을 주지 않도록 로그만 기록
                     logger.error(
                         "전환 추적 중 오류 발생: experimentKey=${annotation.experimentKey}, " +
@@ -74,17 +96,31 @@ class PrismTrackConversionAspect(
     }
 
     /**
-     * 메서드에서 모든 @PrismTrackConversion 어노테이션을 수집합니다.
+     * 메소드 메타데이터를 가져옵니다 (캐시 활용).
      */
-    private fun collectAnnotations(joinPoint: ProceedingJoinPoint): List<PrismTrackConversion> {
+    private fun getMethodMetadata(joinPoint: ProceedingJoinPoint): MethodMetadata {
         val signature = joinPoint.signature as MethodSignature
         val method = signature.method
+
+        return methodMetadataCache.computeIfAbsent(method) {
+            MethodMetadata(
+                annotations = collectAnnotations(method),
+                parameterAnnotations = method.parameterAnnotations,
+                parameterNames = signature.parameterNames
+            )
+        }
+    }
+
+    /**
+     * 메서드에서 모든 @PrismTrackConversion 어노테이션을 수집합니다.
+     */
+    private fun collectAnnotations(method: Method): List<PrismTrackConversion> {
         val annotations = mutableListOf<PrismTrackConversion>()
 
         // 여러 어노테이션 (Repeatable인 경우) - 먼저 확인
         method.getAnnotation(PrismTrackConversions::class.java)?.let {
             annotations.addAll(it.value)
-            return annotations  // 여러 개가 있으면 바로 리턴
+            return annotations
         }
 
         // 단일 어노테이션
@@ -101,30 +137,35 @@ class PrismTrackConversionAspect(
      */
     private fun trackConversionIfAssigned(
         joinPoint: ProceedingJoinPoint,
+        metadata: MethodMetadata,
         prismTrackConversion: PrismTrackConversion,
         returnValue: Any?
     ) {
         // 할당 여부 확인
         if (!PrismContext.wasActuallyAssigned()) {
-            logger.debug(
-                "전환 추적 스킵 (할당 안 됨): experimentKey=${prismTrackConversion.experimentKey}, " +
-                "eventName=${prismTrackConversion.eventName}"
-            )
+            if (logger.isDebugEnabled) {
+                logger.debug(
+                    "전환 추적 스킵 (할당 안 됨): experimentKey=${prismTrackConversion.experimentKey}, " +
+                    "eventName=${prismTrackConversion.eventName}"
+                )
+            }
             return
         }
 
         // trackWhen 조건 확인
         if (!shouldTrackBasedOnReturnValue(returnValue, prismTrackConversion.trackWhen)) {
-            logger.debug(
-                "전환 추적 스킵 (조건 불일치): experimentKey=${prismTrackConversion.experimentKey}, " +
-                "eventName=${prismTrackConversion.eventName}, trackWhen=${prismTrackConversion.trackWhen}, " +
-                "returnValue=$returnValue"
-            )
+            if (logger.isDebugEnabled) {
+                logger.debug(
+                    "전환 추적 스킵 (조건 불일치): experimentKey=${prismTrackConversion.experimentKey}, " +
+                    "eventName=${prismTrackConversion.eventName}, trackWhen=${prismTrackConversion.trackWhen}, " +
+                    "returnValue=$returnValue"
+                )
+            }
             return
         }
 
         // userId 추출
-        val userId = extractUserId(joinPoint, prismTrackConversion)
+        val userId = extractUserId(joinPoint, metadata, prismTrackConversion)
         if (userId == null) {
             logger.warn(
                 "userId를 찾을 수 없어 전환 추적 스킵: @PrismUserId 또는 '${prismTrackConversion.userIdParam}' 파라미터를 확인하세요. " +
@@ -140,10 +181,12 @@ class PrismTrackConversionAspect(
             eventName = prismTrackConversion.eventName
         )
 
-        logger.debug(
-            "전환 추적 성공: userId=$userId, experimentKey=${prismTrackConversion.experimentKey}, " +
-            "eventName=${prismTrackConversion.eventName}, returnValue=$returnValue"
-        )
+        if (logger.isDebugEnabled) {
+            logger.debug(
+                "전환 추적 성공: userId=$userId, experimentKey=${prismTrackConversion.experimentKey}, " +
+                "eventName=${prismTrackConversion.eventName}, returnValue=$returnValue"
+            )
+        }
     }
 
     /**
@@ -168,23 +211,20 @@ class PrismTrackConversionAspect(
      */
     private fun extractUserId(
         joinPoint: ProceedingJoinPoint,
+        metadata: MethodMetadata,
         prismTrackConversion: PrismTrackConversion
     ): String? {
-        val signature = joinPoint.signature as MethodSignature
-        val method = signature.method
-        val parameterAnnotations = method.parameterAnnotations
-        val parameterNames = signature.parameterNames
         val args = joinPoint.args
 
-        // 1. @PrismUserId 어노테이션이 붙은 파라미터 찾기
-        parameterAnnotations.forEachIndexed { index, annotations ->
+        // 1. @PrismUserId 어노테이션이 붙은 파라미터 찾기 (캐시된 메타데이터 사용)
+        metadata.parameterAnnotations.forEachIndexed { index, annotations ->
             if (annotations.any { it is PrismUserId }) {
                 return args[index]?.toString()
             }
         }
 
-        // 2. userIdParam 이름과 일치하는 파라미터 찾기
-        val userIdParamIndex = parameterNames.indexOf(prismTrackConversion.userIdParam)
+        // 2. userIdParam 이름과 일치하는 파라미터 찾기 (캐시된 메타데이터 사용)
+        val userIdParamIndex = metadata.parameterNames.indexOf(prismTrackConversion.userIdParam)
         if (userIdParamIndex >= 0 && userIdParamIndex < args.size) {
             return args[userIdParamIndex]?.toString()
         }
