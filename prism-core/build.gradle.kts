@@ -13,9 +13,7 @@ tasks.jar {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     implementation("org.springframework:spring-expression")
-    implementation("org.springframework:spring-context")
 }
 
 // 소스 JAR 포함
