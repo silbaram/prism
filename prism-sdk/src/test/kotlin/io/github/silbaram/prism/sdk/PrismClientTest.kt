@@ -7,6 +7,8 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PrismClientTest {
     private lateinit var mockWebServer: MockWebServer
@@ -70,7 +72,7 @@ class PrismClientTest {
         assertEquals("user123", response.userId)
         assertEquals("invalid-exp", response.experimentKey)
         assertEquals(null, response.variant)
-        assertEquals(ResponseCode.GENERAL_ERROR.code, response.resultCode)
+        assertEquals(SdkResponseCode.CLIENT_ERROR.code, response.resultCode)
         assertEquals("Experiment not found or not active", response.resultMessage)
     }
 
@@ -83,7 +85,7 @@ class PrismClientTest {
         assertEquals("user123", response.userId)
         assertEquals("exp-1", response.experimentKey)
         assertEquals(null, response.variant)
-        assertEquals(ResponseCode.GENERAL_ERROR.code, response.resultCode)
+        assertEquals(SdkResponseCode.CLIENT_ERROR.code, response.resultCode)
         assert(response.resultMessage.contains("HTTP 500"))
     }
 
@@ -96,15 +98,15 @@ class PrismClientTest {
         assertEquals("user123", response.userId)
         assertEquals("exp-1", response.experimentKey)
         assertEquals(null, response.variant)
-        assertEquals(ResponseCode.GENERAL_ERROR.code, response.resultCode)
+        assertEquals(SdkResponseCode.CLIENT_ERROR.code, response.resultCode)
         assert(response.resultMessage.contains("Assignment failed"))
     }
 
     @Test
     fun `trackConversion should send correct payload`() {
-        mockWebServer.enqueue(MockResponse().setResponseCode(200))
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"userId":"user123","experimentKey":"exp-1","eventName":"purchase","variant":"A","resultCode":"0000","resultMessage":"Success"}"""))
 
-        client.trackConversion("user123", "exp-1", "purchase")
+        assertTrue(client.trackConversion("user123", "exp-1", "purchase"))
 
         val request = mockWebServer.takeRequest()
         assertEquals("/v1/conversions", request.path)
@@ -123,7 +125,7 @@ class PrismClientTest {
         mockWebServer.enqueue(MockResponse().setResponseCode(500).setBody("Internal Server Error"))
 
         // 예외가 발생하지 않아야 함
-        client.trackConversion("user123", "exp-1", "purchase")
+        assertFalse(client.trackConversion("user123", "exp-1", "purchase"))
 
         val request = mockWebServer.takeRequest()
         assertEquals("/v1/conversions", request.path)
@@ -135,6 +137,28 @@ class PrismClientTest {
         mockWebServer.shutdown()
 
         // 예외가 발생하지 않아야 함
-        client.trackConversion("user123", "exp-1", "purchase")
+        assertFalse(client.trackConversion("user123", "exp-1", "purchase"))
     }
+    @Test
+    fun `HTTP success with rejected conversion returns false`() {
+        mockWebServer.enqueue(MockResponse().setBody("""{"userId":"user123","experimentKey":"exp-1","eventName":"purchase","variant":null,"resultCode":"9100","resultMessage":"No prior impression"}"""))
+        assertFalse(client.trackConversion("user123", "exp-1", "purchase"))
+    }
+
+    @Test
+    fun `malformed conversion response fails safely`() {
+        mockWebServer.enqueue(MockResponse().setBody("not-json"))
+        assertFalse(client.trackConversion("user123", "exp-1", "purchase"))
+    }
+
+    @Test
+    fun `lookup uses read only endpoint and encodes identifiers`() {
+        mockWebServer.enqueue(MockResponse().setBody("""{"userId":"u +&","experimentKey":"e/&","variant":"A","resultCode":"0000","resultMessage":"Success"}"""))
+        assertEquals("A", client.getAssignment("u +&", "e/&").variant)
+        val request = mockWebServer.takeRequest()
+        assertEquals("/v1/assignments", request.requestUrl!!.encodedPath)
+        assertEquals("u +&", request.requestUrl!!.queryParameter("userId"))
+        assertEquals("e/&", request.requestUrl!!.queryParameter("experimentKey"))
+    }
+
 }

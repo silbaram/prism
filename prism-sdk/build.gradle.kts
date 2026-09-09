@@ -16,13 +16,16 @@ dependencies {
     api(project(":prism-common"))
 
     // JSON 직렬화 등 런타임 의존성
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.15.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
     // 로깅 의존성
-    implementation("org.slf4j:slf4j-api:2.0.9")
+    implementation("org.slf4j:slf4j-api")
+
+    implementation("com.github.ben-manes.caffeine:caffeine")
 
     // 테스트 의존성
-    testImplementation(kotlin("test"))
+    testImplementation(kotlin("test-junit5"))
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.11.0")
 }
 
@@ -46,3 +49,5 @@ tasks.test {
     // 루트 설정과 중복될 수 있으나 명시적으로 유지해도 무방
     useJUnitPlatform()
 }
+
+apply(from = rootProject.file("gradle/sdk-publication-test.gradle.kts"))

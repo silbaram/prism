@@ -1,0 +1,30 @@
+plugins { id 'application' }
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+}
+
+repositories {
+    maven {
+        url = uri(providers.gradleProperty('prismRepository').get())
+        content { includeGroup 'io.github.silbaram.prism' }
+        metadataSources {
+            if (providers.gradleProperty('metadataFormat').get() == 'module') {
+                gradleMetadata() // Do not let a working POM hide broken or missing module metadata.
+            } else {
+                mavenPom()
+                ignoreGradleMetadataRedirection()
+            }
+        }
+    }
+    mavenCentral { content { excludeGroup 'io.github.silbaram.prism' } }
+}
+
+dependencies {
+    implementation "io.github.silbaram.prism:prism-sdk:${providers.gradleProperty('prismVersion').get()}"
+}
+
+// Recheck freshly published SNAPSHOT artifacts on every verification run.
+configurations.configureEach { resolutionStrategy.cacheChangingModulesFor 0, 'seconds' }
+
+application { mainClass = 'SdkConsumer' }

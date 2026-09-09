@@ -1,80 +1,71 @@
 package io.github.silbaram.prism.sdk
 
+import com.github.benmanes.caffeine.cache.Caffeine
 import io.github.silbaram.prism.common.rest.ResponseCode
 import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
 import org.slf4j.LoggerFactory
+import java.time.Duration
 
-/**
- * A/B 테스트를 안전하게 실행할 수 있도록 도와주는 클라이언트입니다.
- *
- * 주요 기능:
- * - 사용자에게 실험 variant 할당 (성공/실패 여부 확인 가능)
- * - 할당에 성공한 경우에만 전환 이벤트 기록 (통계 오염 방지)
- *
- * Spring Boot 환경이 아니어도 사용 가능합니다.
- */
-class PrismExperimentClient(
-    private val prismClient: PrismClient
+/** Explicit assignments and exposure-aware tracking, independent of threads and AOP ordering. */
+class PrismExperimentClient @JvmOverloads constructor(
+    private val prismClient: PrismClient,
+    assignmentCacheTtl: Duration = Duration.ofSeconds(30),
+    assignmentCacheMaximumSize: Long = 10_000
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
+    private data class AssignmentKey(val userId: String, val experimentKey: String)
+    private val assignments = Caffeine.newBuilder()
+        .expireAfterWrite(assignmentCacheTtl)
+        .maximumSize(assignmentCacheMaximumSize)
+        .build<AssignmentKey, AssignmentOutcome?>()
 
-    /**
-     * 사용자에게 실험 variant를 할당합니다.
-     *
-     * API 장애나 네트워크 오류가 발생해도 예외를 던지지 않고,
-     * assigned=false인 결과를 반환합니다.
-     *
-     * @param userId 사용자 ID
-     * @param experimentKey 실험 키
-     * @return 할당 결과 (variant, assigned 플래그 포함)
-     */
+    /** Every explicit assign records an exposure. Only successful results populate the lookup cache. */
     fun assign(userId: String, experimentKey: String): AssignmentOutcome {
-        return try {
-            val response = prismClient.assign(userId, experimentKey)
-            AssignmentOutcome.from(response)
-        } catch (e: Exception) {
-            logger.error("할당 실패: userId=${mask(userId)}, experimentKey=$experimentKey", e)
-            AssignmentOutcome.failed(userId, experimentKey, e.message ?: "Unknown error")
-        }
+        val key = AssignmentKey(userId, experimentKey)
+        val outcome = safely(userId, experimentKey) { prismClient.assign(userId, experimentKey) }
+        if (outcome.assigned) assignments.put(key, outcome) else assignments.invalidate(key)
+        return outcome
     }
 
-    /**
-     * 전환 이벤트를 추적합니다.
-     *
-     * assign() 호출이 성공했을 때만 전환을 기록하여 통계 오염을 방지합니다.
-     * API 장애나 실험 미등록 등으로 할당에 실패했다면 전환을 기록하지 않습니다.
-     *
-     * 사용 예시:
-     * ```
-     * val outcome = experimentClient.assign("user-123", "checkout-experiment")
-     * // ...  비즈니스 로직 실행 ...
-     * experimentClient.track(outcome, "purchase")
-     * ```
-     *
-     * @param outcome assign() 호출 결과
-     * @param eventName 전환 이벤트 이름 (예: "purchase", "signup", "click")
-     * @return true:  전환 기록됨, false: 스킵됨 (할당 실패)
+    /** Checks prior exposure, then sends the event. A cache miss performs a read-only server lookup.
+     * Failed lookups are not cached, and tracking never manufactures a new exposure.
      */
-    fun track(outcome: AssignmentOutcome, eventName: String): Boolean  {
-        return if (outcome.assigned) {
-            prismClient.trackConversion(outcome.userId, outcome. experimentKey, eventName)
-            true
-        } else {
-            logger.debug(
-                "전환 스킵 (할당 실패): userId=${mask(outcome.userId)}, experimentKey=${outcome.experimentKey}, " +
-                    "eventName=$eventName, reason=${outcome.resultMessage}"
-            )
+    fun trackIfAssigned(userId: String, experimentKey: String, eventName: String): Boolean {
+        val key = AssignmentKey(userId, experimentKey)
+        val outcome = assignments.get(key) {
+            safely(userId, experimentKey) { prismClient.getAssignment(userId, experimentKey) }
+                .takeIf { it.assigned }
+        } ?: return false
+        return track(outcome, eventName)
+    }
+
+    /** Returns the server's acceptance, not merely whether a request was attempted. */
+    fun track(outcome: AssignmentOutcome, eventName: String): Boolean {
+        if (!outcome.assigned || outcome.variant.isNullOrBlank() || outcome.resultCode != ResponseCode.SUCCESS.code) return false
+        val accepted = try {
+            prismClient.trackConversion(outcome.userId, outcome.experimentKey, eventName)
+        } catch (exception: Exception) {
+            if (exception is InterruptedException) Thread.currentThread().interrupt()
+            logger.warn("Conversion failed: userId={}, experimentKey={}, error={}",
+                maskUserId(outcome.userId), outcome.experimentKey, exception.javaClass.simpleName)
             false
         }
+        if (!accepted) assignments.invalidate(AssignmentKey(outcome.userId, outcome.experimentKey))
+        return accepted
     }
 
-    private fun mask(userId: String): String {
-        return when {
-            userId.isBlank() -> "***"
-            userId.length <= 4 -> "***"
-            else -> "${userId.take(2)}***${userId.takeLast(2)}"
+    private fun safely(userId: String, experimentKey: String, request: () -> AssignmentResponse): AssignmentOutcome =
+        try {
+            val response = request()
+            if (response.userId != userId || response.experimentKey != experimentKey) {
+                AssignmentOutcome.failed(userId, experimentKey, "Mismatched assignment response")
+            } else AssignmentOutcome.from(response)
+        } catch (exception: Exception) {
+            if (exception is InterruptedException) Thread.currentThread().interrupt()
+            logger.warn("Assignment lookup failed: userId={}, experimentKey={}, error={}",
+                maskUserId(userId), experimentKey, exception.javaClass.simpleName)
+            AssignmentOutcome.failed(userId, experimentKey, exception.javaClass.simpleName)
         }
-    }
 }
 
 /**
@@ -122,7 +113,7 @@ data class AssignmentOutcome(
                 experimentKey = experimentKey,
                 variant = null,
                 assigned = false,
-                resultCode = ResponseCode.GENERAL_ERROR.code,
+                resultCode = SdkResponseCode.CLIENT_ERROR.code,
                 resultMessage = message
             )
         }

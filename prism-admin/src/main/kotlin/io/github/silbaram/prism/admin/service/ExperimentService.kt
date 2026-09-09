@@ -3,6 +3,8 @@ package io.github.silbaram.prism.admin.service
 import io.github.silbaram.prism.admin.exception.DuplicateExperimentKeyException
 import io.github.silbaram.prism.admin.exception.ExperimentNotFoundException
 import io.github.silbaram.prism.admin.exception.InvalidVariantWeightException
+import io.github.silbaram.prism.core.model.InvalidVariantWeightsException
+import io.github.silbaram.prism.core.model.validateVariantWeights
 import io.github.silbaram.prism.admin.service.dto.ExperimentCreateDto
 import io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentEntity
@@ -23,11 +25,13 @@ class ExperimentService(
 
     fun createExperiment(dto: ExperimentCreateDto): ExperimentEntity {
         validateUniqueKey(dto.key)
-        validateVariantWeights(dto.variants.sumOf { it.weight })
+        validateWeights(dto.variants.map { it.weight })
+        validateGoal(dto.goalEventName)
 
         val experiment = ExperimentEntity(
             key = dto.key,
             description = dto.description,
+            goalEventName = dto.goalEventName.trim(),
             status = ExperimentStatus.DRAFT
         )
 
@@ -47,8 +51,13 @@ class ExperimentService(
     fun updateExperiment(id: Long, dto: ExperimentUpdateDto): ExperimentEntity {
         val experiment = findByIdOrThrow(id)
 
+        validateWeights(dto.variants.map { it.weight })
+        validateGoal(dto.goalEventName)
+        if (experiment.key != dto.key) validateUniqueKey(dto.key)
+
         experiment.key = dto.key
         experiment.description = dto.description
+        experiment.goalEventName = dto.goalEventName.trim()
         experiment.status = dto.status
         experiment.updatedAt = java.time.LocalDateTime.now()
 
@@ -116,9 +125,15 @@ class ExperimentService(
         }
     }
 
-    private fun validateVariantWeights(totalWeight: Int) {
-        if (totalWeight != 100) {
-            throw InvalidVariantWeightException(totalWeight)
+    private fun validateWeights(weights: List<Int>) {
+        try {
+            validateVariantWeights(weights)
+        } catch (exception: InvalidVariantWeightsException) {
+            throw InvalidVariantWeightException(exception.totalWeight)
         }
+    }
+
+    private fun validateGoal(goal: String) {
+        require(goal.isNotBlank() && goal.trim().length <= 255) { "목표 이벤트는 1–255자여야 합니다." }
     }
 }

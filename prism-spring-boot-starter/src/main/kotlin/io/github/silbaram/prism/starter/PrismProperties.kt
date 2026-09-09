@@ -6,5 +6,7 @@ import java.time.Duration
 @ConfigurationProperties(prefix = "prism.client")
 data class PrismProperties(
     var url: String = "",
-    var timeout: Duration = Duration.ofSeconds(5)
+    var timeout: Duration = Duration.ofSeconds(5),
+    var assignmentCacheTtl: Duration = Duration.ofSeconds(30),
+    var assignmentCacheMaximumSize: Long = 10_000
 )

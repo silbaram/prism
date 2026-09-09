@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+    <div class="container">
+        <h3 th:text="${experiment.key + ' · 이벤트별 집계'}">이벤트별 집계</h3>
+        <p class="text-muted">노출 이후에 발생한 이벤트입니다. 이벤트별 사용자는 서로 중복될 수 있으며 합산하지 않습니다.
+            목표 이벤트 외의 이벤트는 실험 CVR에 포함되지 않습니다. 이 표는 이벤트 발생 순서에 따른 퍼널 전환율을 나타내지 않습니다.</p>
+        <table class="table table-striped">
+            <thead><tr><th>이벤트</th><th>Variant</th><th>고유 사용자</th><th>발생 횟수</th></tr></thead>
+            <tbody>
+                <tr th:each="event : ${events}">
+                    <td><span th:text="${event.eventName}">purchase</span>
+                        <span th:if="${event.eventName == experiment.goalEventName}" class="badge bg-primary">목표</span></td>
+                    <td th:text="${event.variant}">A</td>
+                    <td th:text="${event.users}">1</td>
+                    <td th:text="${event.events}">2</td>
+                </tr>
+                <tr th:if="${events.empty}"><td colspan="4" class="text-center text-muted">이벤트 데이터가 없습니다.</td></tr>
+            </tbody>
+        </table>
+        <a th:href="@{/admin/experiments/{id}(id=${experiment.id})}" class="btn btn-outline-secondary">실험 통계로 돌아가기</a>
+    </div>
+</th:block>
+</html>

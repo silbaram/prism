@@ -67,69 +67,40 @@
                         <h5 class="mb-0">실험 통계</h5>
                     </div>
                     <div class="card-body">
-                        <!-- 승자 정보 -->
-                        <div th:if="${stats.winnerVariant != null}" class="alert alert-success mb-4">
-                            <h6 class="alert-heading">🏆 현재 승자 (Winner)</h6>
-                            <p class="mb-0">
-                                <strong th:text="${stats.winnerVariant}">variant_a</strong> 그룹이 가장 높은 CVR을 기록했습니다!
-                            </p>
+                        <p class="mb-2">목표 이벤트: <strong th:text="${stats.goalEventName ?: '미설정'}">purchase</strong></p>
+                        <div th:if="${stats.goalEventName == null}" class="alert alert-warning">
+                            실험 수정 화면에서 목표 이벤트를 지정하면 CVR을 확인할 수 있습니다.
                         </div>
-
-                        <!-- 통계 테이블 -->
+                        <p class="text-muted small">CVR = 목표 이벤트 발생 사용자 / 노출 사용자. 사용자별로 각 변형에서 한 번씩 집계합니다.
+                            95% 신뢰구간은 Wilson 방식이며, 그룹 간 유의성이나 승자를 판정하지 않습니다.</p>
                         <table class="table table-hover mb-4">
                             <thead class="table-light">
                                 <tr>
                                     <th>Variant</th>
-                                    <th class="text-end">노출 수</th>
-                                    <th class="text-end">전환 수</th>
+                                    <th class="text-end">노출 사용자</th>
+                                    <th class="text-end">전환 사용자</th>
                                     <th class="text-end">CVR</th>
+                                    <th class="text-end">95% 신뢰구간</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr th:each="stat : ${stats.stats}"
-                                    th:classappend="${stat.variant == stats.winnerVariant} ? 'table-success'">
-                                    <td>
-                                        <strong th:text="${stat.variant}">control</strong>
-                                        <span th:if="${stat.variant == stats.winnerVariant}"
-                                              class="badge bg-success ms-2">Winner</span>
-                                    </td>
-                                    <td class="text-end" th:text="${#numbers.formatInteger(stat.impressions, 0, 'COMMA')}">1,234</td>
-                                    <td class="text-end" th:text="${#numbers.formatInteger(stat.conversions, 0, 'COMMA')}">567</td>
+                                <tr th:each="stat : ${stats.stats}">
+                                    <td><strong th:text="${stat.variant}">control</strong></td>
+                                    <td class="text-end" th:text="${#numbers.formatInteger(stat.impressions, 0, 'COMMA')}">100</td>
+                                    <td class="text-end" th:text="${stat.conversions == null ? '—' : #numbers.formatInteger(stat.conversions, 0, 'COMMA')}">10</td>
+                                    <td class="text-end" th:text="${stat.cvr == null ? '—' : #numbers.formatDecimal(stat.cvr, 1, 2) + '%'}">10%</td>
                                     <td class="text-end">
-                                        <strong th:text="${#numbers.formatDecimal(stat.cvr, 1, 2) + '%'}">45.92%</strong>
+                                        <span th:if="${stat.confidenceInterval == null}">—</span>
+                                        <span th:if="${stat.confidenceInterval != null}"
+                                              th:text="${#numbers.formatDecimal(stat.confidenceInterval.lower, 1, 2) + '% – ' + #numbers.formatDecimal(stat.confidenceInterval.upper, 1, 2) + '%'}">5.52% – 17.44%</span>
                                     </td>
                                 </tr>
                                 <tr th:if="${stats.stats.empty}">
-                                    <td colspan="4" class="text-center text-muted">통계 데이터가 없습니다.</td>
+                                    <td colspan="5" class="text-center text-muted">통계 데이터가 없습니다.</td>
                                 </tr>
                             </tbody>
                         </table>
-
-                        <!-- CVR Progress Bar 시각화 -->
-                        <div th:if="${!stats.stats.empty}">
-                            <h6 class="mb-3">전환율 (CVR) 시각화</h6>
-                            <div th:each="stat : ${stats.stats}" class="mb-3">
-                                <div class="d-flex justify-content-between mb-1">
-                                    <span>
-                                        <strong th:text="${stat.variant}">control</strong>
-                                        <span th:if="${stat.variant == stats.winnerVariant}"
-                                              class="badge bg-success ms-1" style="font-size: 0.7em;">Winner</span>
-                                    </span>
-                                    <span th:text="${#numbers.formatDecimal(stat.cvr, 1, 2) + '%'}">45.92%</span>
-                                </div>
-                                <div class="progress" style="height: 25px;">
-                                    <div class="progress-bar"
-                                         th:classappend="${stat.variant == stats.winnerVariant} ? 'bg-success' : 'bg-info'"
-                                         role="progressbar"
-                                         th:style="'width: ' + ${stat.cvr} + '%'"
-                                         th:attr="aria-valuenow=${stat.cvr}"
-                                         aria-valuemin="0"
-                                         aria-valuemax="100">
-                                        <span th:text="${#numbers.formatDecimal(stat.cvr, 1, 2) + '%'}">45.92%</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <a th:href="@{/admin/experiments/{id}/events(id=${experiment.id})}" class="btn btn-outline-secondary">이벤트별 집계 보기</a>
                     </div>
                 </div>
             </div>

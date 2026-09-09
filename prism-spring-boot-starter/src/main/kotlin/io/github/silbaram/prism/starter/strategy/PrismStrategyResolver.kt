@@ -1,11 +1,12 @@
 package io.github.silbaram.prism.starter.strategy
 
 import io.github.silbaram.prism.sdk.PrismExperimentClient
+import io.github.silbaram.prism.sdk.maskUserId
+import org.springframework.aop.support.AopUtils
 import io.github.silbaram.prism.starter.annotation.PrismStrategy
 import io.github.silbaram.prism.starter.util.logger
 import org.springframework.context.ApplicationContext
 import org.springframework.core.annotation.AnnotationUtils
-import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -37,7 +38,6 @@ inline fun <reified T : Any> PrismStrategyResolver.resolve(userId: String, exper
  * }
  * ```
  */
-@Component
 class PrismStrategyResolver(
     private val applicationContext: ApplicationContext,
     private val prismExperimentClient: PrismExperimentClient
@@ -68,7 +68,7 @@ class PrismStrategyResolver(
         val outcome = prismExperimentClient.assign(userId, experimentKey)
         val variant = outcome.variant ?: "control"
 
-        logger.debug { "전략 선택: experimentKey=$experimentKey, userId=$userId, variant=$variant" }
+        logger.debug { "전략 선택: experimentKey=$experimentKey, userId=${maskUserId(userId)}, variant=$variant" }
 
         // 2. 해당 variant의 전략 찾기
         var strategy = findStrategyForVariant(strategyInterface, experimentKey, variant)
@@ -91,17 +91,6 @@ class PrismStrategyResolver(
         }
 
         return strategy as T
-    }
-
-    /**
-     * userId를 로그에 안전하게 출력하기 위해 마스킹합니다.
-     * 예: "user-12345678" -> "us***78"
-     */
-    private fun maskUserId(userId: String): String {
-        return when {
-            userId.length <= 4 -> "****"
-            else -> "${userId.take(2)}***${userId.takeLast(2)}"
-        }
     }
 
     /**
@@ -129,7 +118,7 @@ class PrismStrategyResolver(
     /**
      * ApplicationContext에서 특정 인터페이스와 experimentKey를 가진 @PrismStrategy Bean을 모두 찾아 맵으로 반환합니다.
      *
-     * Proxy-Safe: AnnotationUtils.findAnnotation()은 Spring AOP 프록시 체인을 자동으로 추적하여
+     * Proxy-Safe: AopUtils.getTargetClass()로 프록시의 타겟 클래스를 조회한 뒤
      * 실제 타겟 클래스의 어노테이션을 찾습니다. (@Transactional, @Async 등의 프록시 환경에서도 안전)
      *
      * Type-Safe: Bean이 요구된 인터페이스를 구현하는지 명시적으로 검증하여 LSP를 준수합니다.
@@ -145,7 +134,7 @@ class PrismStrategyResolver(
 
         beans.values.forEach { bean ->
             // Issue 2 수정: 프록시 객체에서도 어노테이션을 찾을 수 있도록 AnnotationUtils 사용
-            val annotation = AnnotationUtils.findAnnotation(bean.javaClass, PrismStrategy::class.java)
+            val annotation = AnnotationUtils.findAnnotation(AopUtils.getTargetClass(bean), PrismStrategy::class.java)
             if (annotation != null && annotation.experimentKey == experimentKey) {
                 // LSP 준수: 타입 호환성 명시적 검증
                 if (!strategyInterface.isInstance(bean)) {

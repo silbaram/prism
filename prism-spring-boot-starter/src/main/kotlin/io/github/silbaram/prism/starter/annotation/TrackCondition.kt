@@ -4,6 +4,8 @@ package io.github.silbaram.prism.starter.annotation
  * 전환 추적 조건을 정의하는 enum입니다.
  *
  * 메서드의 반환값을 기반으로 전환 이벤트를 추적할지 결정합니다.
+ * 실패/null 결과를 기록할 때는 성공 목표와 별도의 보조 이벤트 이름을 사용하세요.
+ * CVR에는 실험의 goalEventName과 일치하는 이벤트만 포함됩니다.
  */
 enum class TrackCondition {
     /**

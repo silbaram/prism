@@ -1,53 +1,55 @@
 package com.prism.admin.service
 
-
-
-import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ImpressionLogRepository
-import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ConversionLogRepository
 import io.github.silbaram.prism.admin.service.AnalyticsService
+import io.github.silbaram.prism.admin.service.wilsonInterval
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.VariantEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.*
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
-import io.mockk.every
-import io.mockk.mockk
+import io.kotest.matchers.doubles.plusOrMinus
+import io.mockk.*
 
-/**
- * AnalyticsService 단위 테스트
- *
- * 이 테스트 클래스는 AnalyticsService의 핵심 비즈니스 로직을 검증합니다.
- * 주요 테스트 항목:
- * 1. 실험 결과 집계 및 통계 계산:
- *    - ImpressionLogRepository와 ConversionLogRepository의 Mock을 사용하여 노출 및 전환 데이터를 시뮬레이션합니다.
- *    - 각 변형(Variant)별 전환율(CVR)이 정확히 계산되는지 확인합니다.
- *    - 가장 높은 CVR을 가진 변형이 승자(winnerVariant)로 선정되는지 검증합니다.
- */
 class AnalyticsServiceTest : FunSpec({
+    val impressions = mockk<ImpressionLogRepository>()
+    val conversions = mockk<ConversionLogRepository>()
+    val experiments = mockk<ExperimentRepository>()
+    val service = AnalyticsService(impressions, conversions, experiments)
+    beforeTest { clearMocks(impressions, conversions, experiments) }
 
-    val impressionRepository = mockk<ImpressionLogRepository>()
-    val conversionRepository = mockk<ConversionLogRepository>()
-    val analyticsService = AnalyticsService(impressionRepository, conversionRepository)
+    test("only the configured goal determines CVR and every configured variant remains visible") {
+        val experiment = ExperimentEntity(key = "e", description = "", goalEventName = "purchase")
+        listOf("A", "B", "C").forEach { experiment.addVariant(VariantEntity(name = it, weight = 0)) }
+        every { experiments.findByKey("e") } returns experiment
+        every { impressions.countImpressionsByVariant("e") } returns listOf(arrayOf("A", 100L), arrayOf("B", 11L))
+        every { conversions.countConversionsByVariant("e", "purchase") } returns listOf(arrayOf("A", 10L), arrayOf("B", 1L))
+        val result = service.getExperimentStats("e")
+        result.goalEventName shouldBe "purchase"
+        result.stats.map { it.variant } shouldBe listOf("A", "B", "C")
+        val a = result.stats.first()
+        a.cvr shouldBe 10.0
+        a.confidenceInterval!!.lower shouldBe (5.52291 plusOrMinus 0.00001)
+        a.confidenceInterval!!.upper shouldBe (17.43657 plusOrMinus 0.00001)
+        result.stats.last().cvr shouldBe null
+        result.stats.last().confidenceInterval shouldBe null
+    }
 
-    test("CVR을 계산하고 승자를 도출한다") {
-        val experimentKey = "test-exp"
+    test("legacy experiment without a goal shows no invented zero conversion rate") {
+        every { experiments.findByKey("e") } returns ExperimentEntity(key = "e", description = "")
+        every { impressions.countImpressionsByVariant("e") } returns listOf(arrayOf("A", 100L))
+        val stat = service.getExperimentStats("e").stats.single()
+        stat.conversions shouldBe null
+        stat.cvr shouldBe null
+        stat.confidenceInterval shouldBe null
+        verify { conversions wasNot Called }
+    }
 
-        every { impressionRepository.countImpressionsByVariant(experimentKey) } returns listOf(
-            arrayOf("A", 100L),
-            arrayOf("B", 100L)
-        )
-
-        every { conversionRepository.countConversionsByVariant(experimentKey) } returns listOf(
-            arrayOf("A", 10L),
-            arrayOf("B", 20L)
-        )
-
-        val result = analyticsService.getExperimentStats(experimentKey)
-
-        result.stats.size shouldBe 2
-        with(result.stats.first { it.variant == "A" }) {
-            cvr shouldBe 10.0
-        }
-        with(result.stats.first { it.variant == "B" }) {
-            cvr shouldBe 20.0
-        }
-        result.winnerVariant shouldBe "B"
+    test("Wilson interval handles zero and all conversions without a winner threshold") {
+        val zero = wilsonInterval(0, 10)
+        zero.lower shouldBe (0.0 plusOrMinus 1e-12)
+        zero.upper shouldBe (27.75328 plusOrMinus 0.00001)
+        val all = wilsonInterval(10, 10)
+        all.lower shouldBe (72.24672 plusOrMinus 0.00001)
+        all.upper shouldBe (100.0 plusOrMinus 1e-12)
     }
 })

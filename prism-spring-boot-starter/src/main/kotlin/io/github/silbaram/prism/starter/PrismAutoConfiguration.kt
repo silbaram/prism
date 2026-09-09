@@ -4,7 +4,6 @@ import io.github.silbaram.prism.sdk.PrismClient
 import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.aop.PrismExperimentAspect
 import io.github.silbaram.prism.starter.aop.PrismTrackConversionAspect
-import io.github.silbaram.prism.starter.routing.PrismVariantMethodRouter
 import io.github.silbaram.prism.starter.service.PrismConversionTracker
 import io.github.silbaram.prism.starter.strategy.PrismStrategyResolver
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -39,7 +38,7 @@ class PrismAutoConfiguration(
     @ConditionalOnBean(PrismClient::class)
     @ConditionalOnMissingBean
     fun prismExperimentClient(prismClient: PrismClient): PrismExperimentClient {
-        return PrismExperimentClient(prismClient)
+        return PrismExperimentClient(prismClient, properties.assignmentCacheTtl, properties.assignmentCacheMaximumSize)
     }
 
     @Bean
@@ -50,24 +49,17 @@ class PrismAutoConfiguration(
     }
 
     @Bean
-    @ConditionalOnBean(PrismClient::class)
+    @ConditionalOnBean(PrismExperimentClient::class)
     @ConditionalOnMissingBean
-    fun prismConversionTracker(prismClient: PrismClient): PrismConversionTracker {
-        return PrismConversionTracker(prismClient)
-    }
-
-    @Bean
-    @ConditionalOnBean(PrismClient::class)
-    @ConditionalOnMissingBean
-    fun prismTrackConversionAspect(prismClient: PrismClient): PrismTrackConversionAspect {
-        return PrismTrackConversionAspect(prismClient)
+    fun prismConversionTracker(prismExperimentClient: PrismExperimentClient): PrismConversionTracker {
+        return PrismConversionTracker(prismExperimentClient)
     }
 
     @Bean
     @ConditionalOnBean(PrismExperimentClient::class)
     @ConditionalOnMissingBean
-    fun prismVariantMethodRouter(prismExperimentClient: PrismExperimentClient): PrismVariantMethodRouter {
-        return PrismVariantMethodRouter(prismExperimentClient)
+    fun prismTrackConversionAspect(prismExperimentClient: PrismExperimentClient): PrismTrackConversionAspect {
+        return PrismTrackConversionAspect(prismExperimentClient)
     }
 
     @Bean
