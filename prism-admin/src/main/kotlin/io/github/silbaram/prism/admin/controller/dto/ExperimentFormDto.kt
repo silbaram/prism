@@ -5,6 +5,7 @@ import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.Experime
 data class ExperimentFormDto(
     val key: String = "",
     val description: String = "",
+    val goalEventName: String = "",
     val status: ExperimentStatus = ExperimentStatus.DRAFT,
     val variants: MutableList<VariantFormDto> = mutableListOf(),
     val targetingRules: MutableList<TargetingRuleFormDto> = mutableListOf()

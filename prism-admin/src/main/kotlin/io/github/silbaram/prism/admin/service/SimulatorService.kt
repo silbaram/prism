@@ -34,21 +34,10 @@ class SimulatorService(
         )
     }
 
-    fun getAllExperimentSummaries(): List<ExperimentSummary> {
-        return experimentRepository.findAll().map {
-            ExperimentSummary(id = it.id!!, key = it.key, status = it.status.name)
-        }
-    }
 }
 
 data class SimulationResult(
     val experimentKey: String,
     val userId: String,
     val assignedVariant: String?
-)
-
-data class ExperimentSummary(
-    val id: Long,
-    val key: String,
-    val status: String
 )

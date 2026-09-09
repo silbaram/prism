@@ -4,7 +4,7 @@ Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 고성능 Servi
 
 ## 주요 특징
 - **무상태 트래픽 분배**: 고성능 API로 사용자별 변형(variant) 할당
-- **실험 관리/Admin**: 실험 생성·승자 판정·통계 뷰 제공
+- **실험 관리/Admin**: 목표 이벤트 설정·사용자 단위 CVR·95% 신뢰구간 제공
 - **Fail-safe SDK**: 네트워크/서버 장애 시에도 기본값으로 안전하게 동작
 - **Spring 통합**: `@PrismExperiment` 어노테이션과 안전한 전환 추적 래퍼 제공
 
@@ -12,7 +12,7 @@ Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 고성능 Servi
 - **prism-core**: MurmurHash 기반 트래픽 분배 및 SpEL 타기팅 유틸리티
 - **prism-common**: 공용 DTO 및 상수 모음 (`ResponseCode` 등)
 - **prism-api**: 트래픽 분배/로그 수집 API 서비스
-- **prism-admin**: 실험 생성·승자 판정·통계 조회용 Admin 서비스
+- **prism-admin**: 실험 생성·목표 이벤트·통계 조회용 Admin 서비스
 - **prism-sdk**: Java/Kotlin 클라이언트 SDK (자세한 내용은 `prism-sdk/README.md`)
 - **prism-spring-boot-starter**: Spring Boot 통합 스타터 (자세한 내용은 `prism-spring-boot-starter/README.md`)
 - **prism-infrastructure**: JPA 엔티티와 스키마 정의
@@ -34,12 +34,12 @@ cd ..
 ```
 
 ## 빌드 및 실행
-- 필수 요구사항: JDK 17+, Docker Compose(로컬 DB), Gradle 래퍼
+- 필수 요구사항: JDK 21+, Docker Compose(로컬 DB), Gradle 래퍼
 - 빌드/테스트: `./gradlew test` 또는 `./gradlew clean build`
 - 실행:
   - Admin: `./gradlew :prism-admin:bootRun` (기본 8070)
   - API: `./gradlew :prism-api:bootRun` (기본 8080 → 동시 실행 시 `application.yml` 혹은 `SERVER_PORT` 환경변수로 변경)
-  - 로컬 DB: `cd docker && docker-compose up -d` (MySQL, 스키마는 `prism-infrastructure` 기준)
+  - 로컬 DB: `cd docker && docker-compose up -d` (MySQL 8.0.17+, 스키마는 `prism-infrastructure` 기준)
 
 ## 포트·환경 변수 요약
 - Admin 기본 포트: 8070 (`prism-admin/src/main/resources/application.yml`)
@@ -51,6 +51,12 @@ cd ..
 ## 문서
 - SDK 상세 사용법: `prism-sdk/README.md`
 - Spring Boot 통합 가이드: `prism-spring-boot-starter/README.md`
-- 빌드 시 `PrismClient.trackConversion` 직접 호출을 감지해 실패합니다. 통계 오염 방지를 위해 안전 래퍼를 사용하세요:
-  - SDK: `PrismExperimentClient.track()` 또는 `trackConversionIfAssigned()`
-  - Spring Boot: `PrismConversionTracker.trackConversionSafe()`
+- 지표 정의 및 업그레이드: [이슈 #27 구현 결정과 마이그레이션](docs/issue-27.md)
+
+## 전환 지표
+
+실험별 목표 이벤트를 설정하면 **목표 이벤트 발생 고유 사용자 / 노출 고유 사용자**로 CVR을 계산합니다.
+반복 이벤트는 사용자별 한 번만 집계하며, 보조/실패 이벤트는 별도 화면에서 확인합니다.
+선행 노출 없는 전환은 서버에서 `IMPRESSION_NOT_FOUND (9100)`로 거부합니다.
+자동 승자 표기 대신 표본 수와 Wilson 95% 신뢰구간을 표시합니다.
+기존 실험은 목표 이벤트를 직접 지정하기 전까지 CVR을 표시하지 않습니다.

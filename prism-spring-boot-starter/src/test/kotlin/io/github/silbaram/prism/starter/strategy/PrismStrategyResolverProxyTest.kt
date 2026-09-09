@@ -37,48 +37,24 @@ class PrismStrategyResolverProxyTest {
     }
 
     @Test
-    fun `Issue 2 재현 - Spring AOP 프록시 객체는 어노테이션을 찾지 못한다`() {
-        // Given: variant A 할당
-        every { mockPrismClient.assign("user-123", "proxy_test") } returns AssignmentResponse(
-            userId = "user-123",
-            experimentKey = "proxy_test",
-            variant = "A",
-            resultCode = ResponseCode.SUCCESS.code,
-            resultMessage = "Success"
-        )
-
-        // 실제 전략 객체 생성
-        val actualStrategy = TestProxyStrategyA()
-
-        // Spring AOP 프록시로 감싸기 (예: @Transactional, @Async 등에서 발생)
-        val proxyFactory = ProxyFactory(actualStrategy)
-        proxyFactory.isProxyTargetClass = true  // CGLIB 프록시 사용
-        val proxiedStrategy = proxyFactory.proxy as TestProxyStrategy
-
-        println("🔍 실제 클래스: ${actualStrategy.javaClass.name}")
-        println("🔍 프록시 클래스: ${proxiedStrategy.javaClass.name}")
-        println("🔍 실제 클래스의 어노테이션: ${actualStrategy.javaClass.getAnnotation(PrismStrategy::class.java)}")
-        println("🔍 프록시 클래스의 어노테이션: ${proxiedStrategy.javaClass.getAnnotation(PrismStrategy::class.java)}")
-
-        // ApplicationContext가 프록시 객체를 반환하도록 설정
-        every { mockApplicationContext.getBeansOfType(TestProxyStrategy::class.java) } returns mapOf(
-            "strategyA" to proxiedStrategy  // ⚠️ 프록시 객체를 반환!
-        )
-
-        // When: 전략 선택 시도
-        val exception = try {
-            resolver.resolve<TestProxyStrategy>("user-123", "proxy_test")
-            null
-        } catch (e: IllegalStateException) {
-            e
-        }
-
-        // Then: 프록시 객체는 어노테이션을 찾지 못해서 전략을 발견하지 못함
-        if (exception != null) {
-            println("❌ Issue 2 재현됨: 프록시 객체에서 @PrismStrategy 어노테이션을 찾지 못함")
-            assertTrue(exception.message!!.contains("@PrismStrategy를 찾을 수 없습니다"))
-        } else {
-            println("✅ 프록시 객체에서도 어노테이션을 정상적으로 찾음 (Issue 2가 이미 수정됨)")
+    fun `strategy resolution keeps JDK and CGLIB proxies and their advice`() {
+        every { mockPrismClient.assign("user-123", "proxy_test") } returns
+            AssignmentResponse("user-123", "proxy_test", "A", "0000", "Success")
+        for (cglib in listOf(false, true)) {
+            var adviceCalls = 0
+            val factory = ProxyFactory(TestProxyStrategyA())
+            factory.isProxyTargetClass = cglib
+            factory.addAdvice(org.aopalliance.intercept.MethodInterceptor { invocation ->
+                adviceCalls++
+                invocation.proceed()
+            })
+            val proxy = factory.proxy as TestProxyStrategy
+            every { mockApplicationContext.getBeansOfType(TestProxyStrategy::class.java) } returns mapOf("strategyA" to proxy)
+            val selected = PrismStrategyResolver(mockApplicationContext, prismExperimentClient)
+                .resolve<TestProxyStrategy>("user-123", "proxy_test")
+            assertSame(proxy, selected)
+            assertEquals("A", selected.execute())
+            assertEquals(1, adviceCalls)
         }
     }
 

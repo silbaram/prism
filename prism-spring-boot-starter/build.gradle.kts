@@ -26,25 +26,24 @@ dependencies {
     api(project(":prism-sdk"))
 
     // Spring AOP 지원 (@PrismExperiment 어노테이션 처리)
-    // 주의: 4.0.0이 아직 Maven Central에 없어서 3.5.8 사용
     // api로 선언하여 AspectJ 의존성이 외부 프로젝트로 전이되도록 함
-    api("org.springframework.boot:spring-boot-starter-aop:3.5.8")
+    api("org.springframework.boot:spring-boot-starter-aspectj")
 
     // Spring Boot AutoConfiguration
-    implementation("org.springframework.boot:spring-boot-autoconfigure:3.5.8")
+    implementation("org.springframework.boot:spring-boot-autoconfigure")
 
     // Jackson Kotlin 모듈
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.15.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
     // Kotlin Logging (SLF4J Kotlin extension for lazy evaluation)
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
 
     // Spring Boot Configuration Processor (IDE 자동완성 지원)
-    kapt("org.springframework.boot:spring-boot-configuration-processor:3.5.8")
+    kapt("org.springframework.boot:spring-boot-configuration-processor")
 
     // 테스트 의존성
     testImplementation(kotlin("test"))
-    testImplementation("org.springframework.boot:spring-boot-starter-test:3.5.8")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
 }
 
 // 소스 JAR 포함

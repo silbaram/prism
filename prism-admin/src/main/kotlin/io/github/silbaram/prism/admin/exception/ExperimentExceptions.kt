@@ -4,4 +4,4 @@ class ExperimentNotFoundException(id: Long) : RuntimeException("실험을 찾을
 
 class DuplicateExperimentKeyException(key: String) : RuntimeException("Experiment with key $key already exists")
 
-class InvalidVariantWeightException(totalWeight: Int) : RuntimeException("Total weight must be 100, but was $totalWeight")
+class InvalidVariantWeightException(totalWeight: Long) : RuntimeException("각 가중치는 0–100이어야 하고 합계는 100이어야 합니다. 현재 합계: $totalWeight")

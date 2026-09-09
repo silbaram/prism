@@ -43,6 +43,7 @@ class ExperimentServiceTest : FunSpec({
         val createDto = ExperimentCreateDto(
             key = "test-exp",
             description = "Test Description",
+            goalEventName = "purchase",
             variants = listOf(VariantDto("A", 50), VariantDto("B", 50))
         )
 
@@ -52,6 +53,7 @@ class ExperimentServiceTest : FunSpec({
 
         val created = experimentService.createExperiment(createDto)
 
+        created.goalEventName shouldBe "purchase"
         created.key shouldBe "test-exp"
         created.status shouldBe ExperimentStatus.DRAFT
         created.variants.shouldHaveSize(2)
@@ -64,6 +66,7 @@ class ExperimentServiceTest : FunSpec({
         val createDto = ExperimentCreateDto(
             key = "invalid-weight",
             description = "Desc",
+            goalEventName = "purchase",
             variants = listOf(VariantDto("A", 30), VariantDto("B", 30))
         )
 
@@ -73,4 +76,38 @@ class ExperimentServiceTest : FunSpec({
 
         verify(exactly = 0) { experimentRepository.save(any()) }
     }
+    test("update validates weights before mutating the managed entity") {
+        val entity = ExperimentEntity(id = 1, key = "e", description = "before", goalEventName = "purchase")
+        every { experimentRepository.findById(1) } returns java.util.Optional.of(entity)
+        val dto = io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto(
+            "e", "after", "signup", ExperimentStatus.ACTIVE, listOf(VariantDto("A", 20)))
+        shouldThrow<InvalidVariantWeightException> { experimentService.updateExperiment(1, dto) }
+        entity.description shouldBe "before"
+        entity.goalEventName shouldBe "purchase"
+        verify(exactly = 0) { experimentRepository.save(any()) }
+    }
+
+    test("negative weights cannot cancel excess weights even when their total is 100") {
+        every { experimentRepository.findByKey("e") } returns null
+        shouldThrow<InvalidVariantWeightException> {
+            experimentService.createExperiment(ExperimentCreateDto("e", "", "purchase",
+                listOf(VariantDto("A", -10), VariantDto("B", 110))))
+        }
+        verify(exactly = 0) { experimentRepository.save(any()) }
+    }
+
+    test("create rejects blank goal events and update persists a valid goal") {
+        every { experimentRepository.findByKey("e") } returns null
+        shouldThrow<IllegalArgumentException> {
+            experimentService.createExperiment(ExperimentCreateDto("e", "", "  ", listOf(VariantDto("A", 100))))
+        }
+        val entity = ExperimentEntity(id = 1, key = "e", description = "")
+        every { experimentRepository.findById(1) } returns java.util.Optional.of(entity)
+        every { experimentRepository.save(any()) } answers { firstArg() }
+        val updated = experimentService.updateExperiment(1,
+            io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto(
+                "e", "", "purchase", ExperimentStatus.DRAFT, listOf(VariantDto("A", 100))))
+        updated.goalEventName shouldBe "purchase"
+    }
+
 })

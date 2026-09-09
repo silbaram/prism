@@ -17,6 +17,13 @@
                 </div>
 
                 <div class="mb-3">
+                    <label for="goalEventName" class="form-label">목표 이벤트</label>
+                    <input id="goalEventName" type="text" name="goalEventName" class="form-control"
+                           th:value="${experiment.goalEventName}" maxlength="255" placeholder="예: purchase" required>
+                    <div class="form-text">이 이벤트를 발생시킨 고유 사용자만 CVR에 포함됩니다. 이벤트 이름은 대소문자를 구분합니다.</div>
+                </div>
+
+                <div class="mb-3">
                     <label class="form-label">설명</label>
                     <textarea name="description" class="form-control" rows="3"
                               th:text="${experiment.description}"></textarea>

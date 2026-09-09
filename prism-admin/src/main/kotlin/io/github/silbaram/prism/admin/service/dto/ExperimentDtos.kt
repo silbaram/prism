@@ -12,6 +12,7 @@ data class TargetingRuleDto(
 data class ExperimentCreateDto(
     val key: String,
     val description: String,
+    val goalEventName: String,
     val variants: List<VariantDto>,
     val targetingRules: List<TargetingRuleDto> = emptyList()
 )
@@ -19,6 +20,7 @@ data class ExperimentCreateDto(
 data class ExperimentUpdateDto(
     val key: String,
     val description: String,
+    val goalEventName: String,
     val status: io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus,
     val variants: List<VariantDto>,
     val targetingRules: List<TargetingRuleDto> = emptyList()

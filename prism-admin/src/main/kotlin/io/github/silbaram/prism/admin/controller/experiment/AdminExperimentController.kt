@@ -1,6 +1,8 @@
 package io.github.silbaram.prism.admin.controller.experiment
 
 import io.github.silbaram.prism.admin.controller.dto.ExperimentFormDto
+import io.github.silbaram.prism.admin.exception.DuplicateExperimentKeyException
+import io.github.silbaram.prism.admin.exception.InvalidVariantWeightException
 import io.github.silbaram.prism.admin.service.AnalyticsService
 import io.github.silbaram.prism.admin.service.ExperimentService
 import io.github.silbaram.prism.admin.service.dto.ExperimentCreateDto
@@ -11,9 +13,13 @@ import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.Experime
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
+import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
+import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Controller
 import org.springframework.ui.Model
 import org.springframework.web.bind.annotation.*
+import java.nio.charset.StandardCharsets
 
 @Controller
 @RequestMapping("/admin/experiments")
@@ -21,6 +27,13 @@ class AdminExperimentController(
     private val experimentService: ExperimentService,
     private val analyticsService: AnalyticsService
 ) {
+
+    @ExceptionHandler(IllegalArgumentException::class, InvalidVariantWeightException::class, DuplicateExperimentKeyException::class)
+    fun invalidExperiment(exception: RuntimeException): ResponseEntity<String> =
+        ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .contentType(MediaType("text", "plain", StandardCharsets.UTF_8))
+            .header("X-Content-Type-Options", "nosniff")
+            .body(exception.message ?: "실험 입력값을 확인하세요.")
 
     // 1. 실험 목록 페이지 (페이지네이션 및 검색 기능 포함)
     @GetMapping
@@ -54,6 +67,7 @@ class AdminExperimentController(
         val createDto = ExperimentCreateDto(
             key = form.key,
             description = form.description,
+            goalEventName = form.goalEventName,
             variants = form.variants.map { VariantDto(it.name, it.weight) },
             targetingRules = form.targetingRules.map { TargetingRuleDto(it.expression) }
         )
@@ -75,6 +89,7 @@ class AdminExperimentController(
         val updateDto = ExperimentUpdateDto(
             key = form.key,
             description = form.description,
+            goalEventName = form.goalEventName,
             status = form.status,
             variants = form.variants.map { VariantDto(it.name, it.weight) },
             targetingRules = form.targetingRules.map { TargetingRuleDto(it.expression) }
@@ -88,6 +103,14 @@ class AdminExperimentController(
     fun delete(@PathVariable id: Long): String {
         experimentService.deleteExperiment(id)
         return "redirect:/admin/experiments"
+    }
+
+    @GetMapping("/{id}/events")
+    fun events(@PathVariable id: Long, model: Model): String {
+        val experiment = experimentService.getExperimentById(id)
+        model.addAttribute("experiment", experiment)
+        model.addAttribute("events", analyticsService.getEventStats(experiment.key))
+        return "experiment/events"
     }
 
     // 7. 실험 상세 페이지

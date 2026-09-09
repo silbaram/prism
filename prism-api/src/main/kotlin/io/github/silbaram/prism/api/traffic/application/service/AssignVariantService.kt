@@ -7,6 +7,7 @@ import io.github.silbaram.prism.api.traffic.application.port.out.LoadExperimentP
 import io.github.silbaram.prism.api.traffic.application.port.out.RecordImpressionPort
 import io.github.silbaram.prism.core.splitter.TrafficSplitter
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 
 /**
  * 변형 할당 서비스 (Application Service / Use Case Implementation).
@@ -46,6 +47,7 @@ class AssignVariantService(
      * @param command 할당 요청 커맨드
      * @return 할당 결과
      */
+    @Transactional
     override fun assignVariant(command: AssignVariantCommand): AssignVariantResult {
         // 1단계: 실험 조회
         val experiment = loadExperimentPort.loadExperiment(command.experimentKey)
@@ -58,7 +60,7 @@ class AssignVariantService(
         val variant = TrafficSplitter.assign(experiment, command.userId)
         val variantName = variant?.name ?: ""
 
-        // 3단계: 노출 이벤트 기록 (비동기)
+        // 3단계: 노출 이벤트 기록 (응답 전에 커밋)
         if (variantName.isNotEmpty()) {
             recordImpressionPort.recordImpression(
                 experimentKey = command.experimentKey,
