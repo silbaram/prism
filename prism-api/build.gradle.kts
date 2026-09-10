@@ -1,5 +1,12 @@
+import org.springframework.boot.gradle.tasks.bundling.BootJar
+
 plugins {
     id("org.springframework.boot")
+}
+
+tasks.getByName<BootJar>("bootJar") {
+    enabled = true
+    archiveFileName.set("prism-api.jar")
 }
 
 tasks.test {
@@ -27,9 +34,6 @@ dependencies {
     implementation(project(":prism-infrastructure"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
-
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(project(":prism-sdk"))
