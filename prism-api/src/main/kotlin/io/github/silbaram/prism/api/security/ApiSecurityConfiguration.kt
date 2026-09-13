@@ -42,7 +42,8 @@ class ApiSecurityConfiguration {
         }
         http.csrf { it.disable() }.sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .requestCache { it.disable() }
-            .authorizeHttpRequests { it.requestMatchers("/error").permitAll().anyRequest().hasRole("SDK") }
+            .authorizeHttpRequests { it.dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
+                .requestMatchers("/error").permitAll().anyRequest().hasRole("SDK") }
             .exceptionHandling { it.authenticationEntryPoint { _, response, _ -> response.sendError(401) } }
             .addFilterBefore(filter, UsernamePasswordAuthenticationFilter::class.java)
         return http.build()

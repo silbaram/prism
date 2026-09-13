@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface ExperimentRepository : JpaRepository<ExperimentEntity, Long> {
+    fun findAllByLayerKey(layerKey: String): List<ExperimentEntity>
     @Query("SELECT e.id FROM ExperimentEntity e WHERE (e.status = 'SCHEDULED' AND e.startsAt <= :now) OR " +
         "(e.status IN ('SCHEDULED', 'ACTIVE', 'PAUSED') AND e.endsAt <= :now)")
     fun findScheduleCandidates(now: java.time.LocalDateTime): List<Long>

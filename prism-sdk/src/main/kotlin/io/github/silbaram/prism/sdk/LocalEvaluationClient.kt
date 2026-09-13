@@ -31,7 +31,8 @@ internal class LocalEvaluationClient(
     private val options: PrismClientOptions,
     private val http: HttpClient
 ) : AutoCloseable {
-    private data class Snapshot(val version: String, val etag: String?, val experiments: Map<String, Experiment>)
+    private data class Snapshot(val version: String, val etag: String?, val experiments: Map<String, Experiment>,
+                                val holdout: io.github.silbaram.prism.core.model.HoldoutPolicy, val revision: Long, val holdoutConfigured: Boolean)
     private data class Key(val userId: String, val experimentKey: String)
     private data class CachedExposure(val event: ClientEvent, val cachedAt: Long = System.nanoTime())
     private val mapper = jacksonObjectMapper()
@@ -41,6 +42,7 @@ internal class LocalEvaluationClient(
     private val closed = AtomicBoolean()
     private val shutdownCompleted = CountDownLatch(1)
     private val refreshLock = Any()
+    private val fetchLock = Any()
     private val queue = LinkedHashMap<String, ClientEvent>()
     private val exposures = Caffeine.newBuilder().maximumSize(options.exposureCacheMaximumSize).build<Key, CachedExposure>()
     // Pending exposures must survive cache expiry/eviction until the collector acknowledges them.
@@ -48,6 +50,7 @@ internal class LocalEvaluationClient(
     // Lifetime deduplication is separate from the bounded, expiring server lookup cache.
     // Keep the original reference/version so conversions still point to an actual exposure.
     private val recordedExposures = HashMap<Key, ClientEvent>()
+    private val populationExposures = HashMap<String, ClientEvent>()
     private val rejectedExposures = Caffeine.newBuilder().maximumSize(options.eventQueueCapacity.toLong())
         .build<String, Boolean>()
     private val flushLock = ReentrantLock()
@@ -57,6 +60,7 @@ internal class LocalEvaluationClient(
     }
     private val configWorker = scheduler("prism-config-sync")
     private val eventWorker = scheduler("prism-event-flush")
+    private val stream = if (options.configStreaming) ConfigStreamClient(baseUrl, timeout, options.apiKey, http) { installConfig(it, null) } else null
     private val shutdownHook = Thread({ close() }, "prism-shutdown")
 
     init {
@@ -66,7 +70,7 @@ internal class LocalEvaluationClient(
             options.eventFlushInterval.toMillis(), TimeUnit.MILLISECONDS)
     }
 
-    fun refreshConfig(): Boolean = synchronized(refreshLock) {
+    fun refreshConfig(): Boolean = synchronized(fetchLock) {
         if (closed.get()) return false
         try {
             val request = HttpRequest.newBuilder(URI.create("$baseUrl/v1/config")).timeout(timeout).GET()
@@ -75,25 +79,43 @@ internal class LocalEvaluationClient(
             if (closed.get()) return false
             if (response.statusCode() == 304) return snapshot.get() != null
             check(response.statusCode() == 200) { "Configuration HTTP ${response.statusCode()}" }
-            val config = mapper.readValue<ConfigResponse>(response.body())
-            require(config.version.matches(Regex("[0-9a-f]{64}"))) { "Invalid configuration version" }
-            require(config.experiments.map { it.key }.toSet().size == config.experiments.size) { "Duplicate experiment keys" }
-            val definitions = config.experiments.associate { definition ->
-                require(definition.status == "ACTIVE") { "Invalid active experiment" }
-                validateExperimentIdentities(definition.key, definition.variants.map { it.name })
-                definition.key to Experiment(definition.key, definition.variants.map { Variant(it.name, it.weight) },
-                    definition.targetingRules.map { TargetingRule(it) }, definition.trafficAllocation,
-                    definition.startsAt?.let(Instant::parse), definition.endsAt?.let(Instant::parse))
-            }
-            // Replace only after the entire response validates, including an empty active set.
-            snapshot.set(Snapshot(config.version, response.headers().firstValue("ETag").orElse(null), definitions))
-            initialized.countDown()
-            true
+            installConfig(response.body(), response.headers().firstValue("ETag").orElse(null))
         } catch (e: Exception) {
             if (e is InterruptedException) Thread.currentThread().interrupt()
             logger.warn("Configuration sync failed; retaining last successful snapshot: {}", e.javaClass.simpleName)
             false
         }
+    }
+
+    private fun installConfig(body: String, etag: String?): Boolean = synchronized(refreshLock) {
+        if (closed.get()) return false
+        val config = mapper.readValue<ConfigResponse>(body)
+        require(config.revision >= 0)
+        if (config.revision < (snapshot.get()?.revision ?: 0)) return false
+        require(config.version.matches(Regex("[0-9a-f]{64}"))) { "Invalid configuration version" }
+        require(config.experiments.map { it.key }.toSet().size == config.experiments.size) { "Duplicate experiment keys" }
+        val holdout = io.github.silbaram.prism.core.model.HoldoutPolicy(config.holdout.key, config.holdout.basisPoints)
+        require(config.holdout.configured || config.holdout.basisPoints == 0) { "An unconfigured holdout cannot exclude users" }
+        snapshot.get()?.takeIf { it.holdoutConfigured }?.let {
+            require(config.holdout.configured && it.holdout == holdout) { "A permanent holdout cannot change" }
+        }
+        val definitions = config.experiments.associate { definition ->
+            require(definition.status == "ACTIVE") { "Invalid active experiment" }
+            validateExperimentIdentities(definition.key, definition.variants.map { it.name })
+            definition.key to Experiment(definition.key, definition.variants.map { Variant(it.name, it.weight) },
+                definition.targetingRules.map { TargetingRule(it) }, definition.trafficAllocation,
+                definition.startsAt?.let(Instant::parse), definition.endsAt?.let(Instant::parse),
+                definition.layer?.let { io.github.silbaram.prism.core.model.LayerAllocation(it.key, it.start, it.end) },
+                holdout, definition.stickyBucketing)
+        }
+        // Replace only after the entire response validates, including an empty active set.
+        definitions.values.filter { it.layer != null }.groupBy { it.layer!!.key }.values.forEach { layer ->
+            val ranges = layer.map { it.layer!! }.sortedBy { it.start }
+            require(ranges.zipWithNext().all { (left, right) -> left.end <= right.start }) { "Overlapping layer allocations" }
+        }
+        snapshot.set(Snapshot(config.version, etag, definitions, holdout, config.revision, config.holdout.configured))
+        initialized.countDown()
+        true
     }
 
     /** Pure evaluation; does not send or enqueue an exposure. */
@@ -106,7 +128,13 @@ internal class LocalEvaluationClient(
         if (closed.get()) return failed(userId, experimentKey)
         val state = snapshot.get() ?: return failed(userId, experimentKey)
         val experiment = state.experiments[experimentKey]
-        val variant = try { experiment?.let { TrafficSplitter.assign(it, userId, UserContext(attributes)) } }
+        val variant = try { experiment?.let {
+            val proposed = TrafficSplitter.assign(it, userId, UserContext(attributes)) ?: return@let null
+            if (!it.stickyBucketing) proposed else {
+                val stored = options.stickyAssignmentStore.getOrPut(userId, experimentKey, proposed.name)
+                it.variants.firstOrNull { candidate -> candidate.name == stored }
+            }
+        } }
             catch (_: Exception) { return failed(userId, experimentKey) }
         val code = if (variant == null) ResponseCode.EXPERIMENT_NOT_FOUND else ResponseCode.SUCCESS
         return AssignmentResponse(userId, experimentKey, variant?.name, code.code, code.message, state.version)
@@ -120,6 +148,37 @@ internal class LocalEvaluationClient(
     }
 
     fun recordExposure(result: AssignmentResponse): Boolean = enqueueExposure(result) != null
+
+    /** null means no validated configuration is available; never guess the comparison cohort. */
+    fun isInHoldout(userId: String): Boolean? = if (closed.get() || !validIdentity(userId)) null else snapshot.get()?.takeIf { it.holdoutConfigured }?.holdout?.excludes(userId)
+
+    fun recordPopulationExposure(userId: String): Boolean {
+        if (closed.get() || !validIdentity(userId)) return false
+        if (snapshot.get() == null) try { initialized.await(options.initializationTimeout.toMillis(), TimeUnit.MILLISECONDS) }
+        catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
+        val state = snapshot.get()?.takeIf { it.holdoutConfigured } ?: return false
+        synchronized(queue) {
+            if (closed.get()) return false
+            if (populationExposures.containsKey(userId)) return true
+            if (populationExposures.size >= options.exposureDedupCapacity) return false
+            val event = ClientEvent(UUID.randomUUID().toString(), "population_exposure", userId, state.holdout.key,
+                if (state.holdout.excludes(userId)) "HOLDOUT" else "ELIGIBLE", Instant.now().toString(), state.version)
+            if (!enqueue(event)) return false
+            populationExposures[userId] = event
+        }
+        scheduleFlush()
+        return true
+    }
+
+    fun trackPopulationConversion(userId: String, eventName: String): Boolean {
+        if (!validIdentity(eventName)) return false
+        val queued = synchronized(queue) {
+            val exposure = populationExposures[userId] ?: return false
+            enqueueConversion(exposure, eventName, "population_conversion")
+        }
+        if (queued) scheduleFlush()
+        return queued
+    }
 
     private fun enqueueExposure(result: AssignmentResponse): ClientEvent? {
         val variant = result.variant ?: return null
@@ -230,9 +289,9 @@ internal class LocalEvaluationClient(
         return queued
     }
 
-    private fun enqueueConversion(exposure: ClientEvent, eventName: String): Boolean {
+    private fun enqueueConversion(exposure: ClientEvent, eventName: String, type: String = "conversion"): Boolean {
         if (rejectedExposures.getIfPresent(exposure.eventId) == true) return false
-        return enqueue(ClientEvent(UUID.randomUUID().toString(), "conversion", exposure.userId, exposure.experimentKey,
+        return enqueue(ClientEvent(UUID.randomUUID().toString(), type, exposure.userId, exposure.experimentKey,
             exposure.variant, Instant.now().toString(), exposure.configVersion, eventName, exposure.eventId))
     }
 
@@ -283,12 +342,17 @@ internal class LocalEvaluationClient(
                     results.forEach { result ->
                         if (result.status != EventStatus.RETRY) {
                             val removed = queue.remove(result.eventId)
-                            if (removed?.type == "exposure") {
+                            if (removed?.type == "exposure" && result.status != EventStatus.QUEUED) {
                                 pendingExposures.remove(Key(removed.userId, removed.experimentKey), removed)
                             }
                             if (result.status == EventStatus.REJECTED) {
                                 rejected = true
                                 logger.warn("Event rejected: id={}, reason={}", result.eventId, result.message)
+                                if (removed?.type == "population_exposure") {
+                                    rejectedExposures.put(removed.eventId, true)
+                                    populationExposures.remove(removed.userId, removed)
+                                    queue.values.removeIf { it.exposureEventId == removed.eventId }
+                                }
                                 if (removed?.type == "exposure") {
                                     rejectedExposures.put(removed.eventId, true)
                                     queue.values.removeIf { it.exposureEventId == removed.eventId }
@@ -320,6 +384,7 @@ internal class LocalEvaluationClient(
         }
         try {
             initialized.countDown()
+            stream?.close()
             configWorker.shutdownNow()
             eventWorker.shutdown() // Allow an in-flight delivery to complete within flush's total deadline.
             if (!flush()) logger.warn("Client closed with {} undelivered events", pendingEventCount)
@@ -327,7 +392,7 @@ internal class LocalEvaluationClient(
             try {
                 eventWorker.shutdownNow()
                 http.shutdownNow()
-                synchronized(queue) { recordedExposures.clear() }
+                synchronized(queue) { recordedExposures.clear(); populationExposures.clear() }
                 try { Runtime.getRuntime().removeShutdownHook(shutdownHook) } catch (_: IllegalStateException) { /* JVM shutdown */ }
             } finally { shutdownCompleted.countDown() }
         }

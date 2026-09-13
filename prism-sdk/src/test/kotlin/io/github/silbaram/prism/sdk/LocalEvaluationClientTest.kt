@@ -24,6 +24,7 @@ class LocalEvaluationClientTest {
     private val loseEventResponse = AtomicBoolean()
     private val malformedAck = AtomicBoolean()
     private val rejectExposure = AtomicBoolean()
+    private val queueEvents = AtomicBoolean()
     private val retryUser = AtomicReference<String?>()
     private val delayEventBody = AtomicBoolean()
     private val etags = CopyOnWriteArrayList<String>()
@@ -61,6 +62,7 @@ class LocalEvaluationClientTest {
                     eventGate?.await(2, TimeUnit.SECONDS)
                     val result = events.events.map { event ->
                         val status = when {
+                            queueEvents.get() -> EventStatus.QUEUED
                             event.userId == retryUser.get() -> EventStatus.RETRY
                             rejectExposure.get() -> if (event.type == "exposure") EventStatus.REJECTED else EventStatus.RETRY
                             committedIds.add(event.eventId) -> EventStatus.ACCEPTED
@@ -92,6 +94,51 @@ class LocalEvaluationClientTest {
         configGate?.countDown()
         if (::client.isInitialized) client.close()
         server.shutdown()
+    }
+
+    @Test
+    fun `queued exposure remains available before asynchronous materialization despite expired lookup cache`() {
+        queueEvents.set(true)
+        create()
+        val assignment = client.assign("u", "checkout", mapOf("age" to 25, "country" to "KR"))
+        assertNotNull(assignment.exposureEventId)
+        assertTrue(client.flush())
+        assertEquals(0, client.pendingEventCount)
+        assertTrue(client.trackConversion("u", "checkout", "purchase", Duration.ZERO))
+        assertTrue(client.flush())
+        assertEquals(assignment.exposureEventId, eventRequests.last().events.single().exposureEventId)
+    }
+
+    @Test
+    fun `configuration revisions cannot regress and a configured holdout cannot be replaced`() {
+        config.set(configuration().copy(revision = 2, holdout = HoldoutConfig("permanent", 0, true)))
+        create()
+        assertTrue(client.refreshConfig())
+        assertEquals(false, client.isInHoldout("u"))
+        val changed = ConfigResponse("b".repeat(64), emptyList(), HoldoutConfig("permanent", 0, true), 1)
+        config.set(changed)
+        assertFalse(client.refreshConfig())
+        assertEquals("A", client.evaluate("u", "checkout", mapOf("age" to 25, "country" to "KR")).variant)
+        config.set(changed.copy(revision = 3, holdout = HoldoutConfig("permanent", 500, true)))
+        assertFalse(client.refreshConfig())
+        config.set(changed.copy(revision = 3, holdout = HoldoutConfig()))
+        assertFalse(client.refreshConfig())
+        config.set(changed.copy(revision = 3))
+        assertTrue(client.refreshConfig())
+        assertNull(client.evaluate("u", "checkout").variant)
+    }
+
+    @Test
+    fun `overlapping layer snapshots are rejected atomically`() {
+        create()
+        assertNotNull(client.evaluate("u", "checkout", mapOf("age" to 25, "country" to "KR")).variant)
+        val first = configuration().experiments.single().copy(targetingRules = emptyList(), layer = LayerConfig("checkout", 0, 6000))
+        config.set(ConfigResponse("b".repeat(64), listOf(first, first.copy(key = "other", layer = LayerConfig("checkout", 5000, 10000)))))
+        assertFalse(client.refreshConfig())
+        assertNull(client.evaluate("u", "other").variant)
+        assertNotNull(client.evaluate("u", "checkout", mapOf("age" to 25, "country" to "KR")).variant)
+        config.set(ConfigResponse("c".repeat(64), emptyList(), HoldoutConfig(basisPoints = 500)))
+        assertFalse(client.refreshConfig())
     }
 
     @Test

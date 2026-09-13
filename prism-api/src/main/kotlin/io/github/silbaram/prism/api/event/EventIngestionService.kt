@@ -23,7 +23,12 @@ class EventIngestionService(
     private val receipts: EventReceiptRepository,
     private val impressions: ImpressionLogRepository,
     private val conversions: ConversionLogRepository,
-    private val experiments: ExperimentRepository
+    private val experiments: ExperimentRepository,
+    private val outbox: PipelineOutboxRepository,
+    private val pipeline: io.github.silbaram.prism.api.pipeline.PipelineProperties,
+    private val populationExposures: PopulationExposureRepository,
+    private val populationConversions: PopulationConversionRepository,
+    private val policies: PopulationPolicyRepository
 ) {
     private val transaction = TransactionTemplate(transactionManager).apply {
         propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
@@ -32,7 +37,7 @@ class EventIngestionService(
 
     fun ingest(events: List<ClientEvent>): EventsResponse {
         // Same-batch conversions can precede exposures on the wire.
-        val results = events.sortedBy { if (it.type == "exposure") 0 else 1 }
+        val results = events.sortedBy { if (it.type.endsWith("exposure")) 0 else 1 }
             .associate { it.eventId to ingestOne(it) }
         return EventsResponse(events.map { results.getValue(it.eventId) })
     }
@@ -51,7 +56,9 @@ class EventIngestionService(
                 entityManager.persist(EventReceiptEntity(event.eventId, digest, event.configVersion))
                 entityManager.flush()
                 val time = LocalDateTime.ofInstant(Instant.parse(event.timestamp), ZoneOffset.UTC)
-                if (event.type == "exposure") {
+                if (event.type.startsWith("population_")) {
+                    recordPopulation(event, time)
+                } else if (event.type == "exposure") {
                     require(experiments.findByKey(event.experimentKey) != null) { "Unknown experiment" }
                     // Buffered events may use a previous config: never reassign against today's weights/status.
                     impressions.saveAndFlush(ImpressionLogEntity(experimentKey = event.experimentKey,
@@ -71,6 +78,8 @@ class EventIngestionService(
                         variant = event.variant, userId = event.userId, eventName = requireNotNull(event.eventName),
                         impressionId = exposure.id, timestamp = time, eventId = event.eventId))
                 }
+                if (pipeline.mode == io.github.silbaram.prism.api.pipeline.PipelineMode.KAFKA) entityManager.persist(PipelineOutboxEntity(
+                    event.eventId, "WAREHOUSE", mapper.writeValueAsString(event)))
                 EventResult(event.eventId, EventStatus.ACCEPTED)
             })
         } catch (_: MissingExposure) {
@@ -91,10 +100,10 @@ class EventIngestionService(
         if (hash == previous.payloadHash) EventResult(event.eventId, EventStatus.DUPLICATE)
         else EventResult(event.eventId, EventStatus.REJECTED, "Event ID already used with a different payload")
 
-    private fun validate(event: ClientEvent) {
+    fun validate(event: ClientEvent) {
         fun uuid(value: String) = UUID.fromString(value).toString() == value
         require(uuid(event.eventId)) { "eventId must be a canonical UUID" }
-        require(event.type in setOf("exposure", "conversion")) { "Unknown event type" }
+        require(event.type in setOf("exposure", "conversion", "population_exposure", "population_conversion")) { "Unknown event type" }
         require(listOf(event.userId, event.experimentKey, event.variant).all { it.isNotBlank() && it.length <= 255 }) {
             "Identity fields must contain 1-255 characters"
         }
@@ -105,7 +114,7 @@ class EventIngestionService(
         require(time >= Instant.ofEpochSecond(1) && time <= Instant.ofEpochSecond(Int.MAX_VALUE.toLong())) {
             "Timestamp outside MySQL TIMESTAMP range"
         }
-        if (event.type == "conversion") {
+        if (event.type.endsWith("conversion")) {
             val name = event.eventName
             val exposureId = event.exposureEventId
             require(!name.isNullOrBlank() && name.length <= 255) { "Invalid eventName" }
@@ -116,4 +125,24 @@ class EventIngestionService(
     }
 
     private class MissingExposure : RuntimeException()
+
+    private fun recordPopulation(event: ClientEvent, time: LocalDateTime) {
+        val policy = policies.findById(1).orElseThrow()
+        require(policy.holdoutBasisPoints != null && policy.holdoutKey == event.experimentKey) { "Unknown population cohort" }
+        val cohort = if (policy.toDomain().excludes(event.userId)) "HOLDOUT" else "ELIGIBLE"
+        require(event.variant == cohort) { "Population cohort mismatch" }
+        if (event.type == "population_exposure") {
+            entityManager.persist(PopulationExposureEntity(event.eventId, policy.holdoutKey, event.userId, cohort, time))
+        } else {
+            val exposureId = requireNotNull(event.exposureEventId)
+            val exposure = populationExposures.findById(exposureId).orElse(null) ?: run {
+                require(!receipts.existsById(exposureId)) { "Referenced event is not a population exposure" }
+                throw MissingExposure()
+            }
+            require(exposure.cohortKey == policy.holdoutKey && exposure.userId == event.userId && exposure.variant == cohort &&
+                receipts.findById(exposureId).orElseThrow().configVersion == event.configVersion) { "Population exposure mismatch" }
+            entityManager.persist(PopulationConversionEntity(event.eventId, policy.holdoutKey, event.userId, cohort,
+                requireNotNull(event.eventName), exposureId, time))
+        }
+    }
 }

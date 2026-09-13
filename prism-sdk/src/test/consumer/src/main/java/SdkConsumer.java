@@ -1,6 +1,8 @@
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.silbaram.prism.sdk.PrismClient;
+import io.github.silbaram.prism.sdk.FileStickyAssignmentStore;
+import java.nio.file.Files;
 import io.github.silbaram.prism.sdk.PrismExperimentClient;
 
 import java.io.IOException;
@@ -17,6 +19,7 @@ public class SdkConsumer {
     public static void main(String[] args) throws Exception {
         var exposures = new AtomicInteger();
         var conversions = new AtomicInteger();
+        var population = new AtomicInteger();
         var apiKey = "consumer-test-api-key-0123456789abcdef";
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/config", exchange -> {
@@ -25,8 +28,9 @@ public class SdkConsumer {
             }
             respond(exchange, 200, """
             {"version":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+             "holdout":{"key":"permanent","basisPoints":0,"configured":true}, "revision":1,
              "experiments":[{"key":"checkout","status":"ACTIVE","variants":[{"name":"A","weight":100}],
-             "targetingRules":["age >= 20 && country == 'KR'"], "trafficAllocation":100},
+             "targetingRules":["age >= 20 && country == 'KR'"], "trafficAllocation":100, "stickyBucketing":true, "layer":{"key":"checkout","start":0,"end":10000}},
              {"key":"disabled","status":"ACTIVE","variants":[{"name":"A","weight":100}],"trafficAllocation":0},
              {"key":"expired","status":"ACTIVE","variants":[{"name":"A","weight":100}],"endsAt":"2020-01-01T00:00:00Z"}]}
             """);
@@ -38,6 +42,7 @@ public class SdkConsumer {
             var payload = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             exposures.addAndGet((int) Pattern.compile("\"type\":\"exposure\"").matcher(payload).results().count());
             conversions.addAndGet((int) Pattern.compile("\"type\":\"conversion\"").matcher(payload).results().count());
+            population.addAndGet((int) Pattern.compile("population_(exposure|conversion)").matcher(payload).results().count());
             var results = new StringJoiner(",", "{\"results\":[", "]}");
             var ids = Pattern.compile("\"eventId\":\"([^\"]+)\"").matcher(payload);
             while (ids.find()) {
@@ -63,6 +68,21 @@ public class SdkConsumer {
             }
             if (client.assign("u", "disabled").getAssigned() || client.assign("u", "expired").getAssigned()) {
                 throw new AssertionError("Participation or period was not enforced by the published SDK");
+            }
+            if (!Boolean.FALSE.equals(client.isInHoldout("user-123")) ||
+                !client.recordPopulationExposure("user-123") || !client.trackPopulationConversion("user-123", "purchase") ||
+                !transport.flush() || population.get() != 2) {
+                throw new AssertionError("Population instrumentation failed");
+            }
+            var directory = Files.createTempDirectory("prism-consumer-sticky");
+            try {
+                new FileStickyAssignmentStore(directory).getOrPut("u", "checkout", "A");
+                if (!"A".equals(new FileStickyAssignmentStore(directory).getOrPut("u", "checkout", "B"))) {
+                    throw new AssertionError("Published durable sticky assignment failed");
+                }
+            } finally {
+                try (var files = Files.list(directory)) { for (var file : files.toList()) Files.delete(file); }
+                Files.delete(directory);
             }
             System.out.println("Published SDK consumer passed: local evaluation, SpEL and batch events");
         } finally {

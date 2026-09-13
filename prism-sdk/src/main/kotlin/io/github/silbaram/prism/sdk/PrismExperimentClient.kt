@@ -21,6 +21,9 @@ class PrismExperimentClient @JvmOverloads constructor(
         .maximumSize(assignmentCacheMaximumSize)
         .build<AssignmentKey, AssignmentOutcome?>()
     private val lookups = ConcurrentHashMap<AssignmentKey, CompletableFuture<AssignmentOutcome?>>()
+    fun isInHoldout(userId: String): Boolean? = prismClient.isInHoldout(userId)
+    fun recordPopulationExposure(userId: String): Boolean = prismClient.recordPopulationExposure(userId)
+    fun trackPopulationConversion(userId: String, eventName: String): Boolean = prismClient.trackPopulationConversion(userId, eventName)
 
     /** Registers actual exposure: LOCAL deduplicates during client lifetime; REMOTE persists each call. */
     @JvmOverloads

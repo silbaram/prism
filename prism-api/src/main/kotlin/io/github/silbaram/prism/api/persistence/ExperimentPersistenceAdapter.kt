@@ -6,17 +6,20 @@ import io.github.silbaram.prism.core.model.Variant
 import io.github.silbaram.prism.core.targeting.TargetingRule
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
 import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.PopulationPolicyRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.layerAllocation
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
 @Component
-class ExperimentPersistenceAdapter(private val experiments: ExperimentRepository) : LoadExperimentPort {
+class ExperimentPersistenceAdapter(private val experiments: ExperimentRepository, private val policies: PopulationPolicyRepository) : LoadExperimentPort {
     @Transactional(readOnly = true)
     override fun loadExperiment(experimentKey: String): Experiment? {
         val entity = experiments.findByKey(experimentKey)
             ?.takeIf { it.status == ExperimentStatus.ACTIVE } ?: return null
         return Experiment(entity.key, entity.variants.map { Variant(it.name, it.weight) },
             entity.targetingRules.map { TargetingRule(it.expression) }, entity.trafficAllocation,
-            entity.startsAt?.toInstant(java.time.ZoneOffset.UTC), entity.endsAt?.toInstant(java.time.ZoneOffset.UTC))
+            entity.startsAt?.toInstant(java.time.ZoneOffset.UTC), entity.endsAt?.toInstant(java.time.ZoneOffset.UTC),
+            entity.layerAllocation(), policies.findById(1).orElseThrow().toDomain(), entity.stickyBucketing)
     }
 }

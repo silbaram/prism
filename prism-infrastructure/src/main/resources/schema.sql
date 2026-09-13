@@ -1,3 +1,8 @@
+CREATE TABLE IF NOT EXISTS experiment_layers (
+    layer_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
+    description VARCHAR(255) NOT NULL
+);
+
 -- MySQL 8.0.17+. Identity strings use exact, case-sensitive, NO PAD comparisons.
 -- 1. 실험 테이블
 CREATE TABLE IF NOT EXISTS experiments (
@@ -7,6 +12,12 @@ CREATE TABLE IF NOT EXISTS experiments (
     goal_event_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NULL,
     status VARCHAR(50) NOT NULL,
     configuration_locked BOOLEAN NOT NULL DEFAULT FALSE,
+    layer_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NULL,
+    layer_start INT NULL,
+    layer_end INT NULL,
+    sticky_bucketing BOOLEAN NOT NULL DEFAULT FALSE,
+    INDEX idx_experiment_layer (layer_key, layer_start, layer_end),
+    CONSTRAINT fk_experiment_layer FOREIGN KEY (layer_key) REFERENCES experiment_layers(layer_key),
     traffic_allocation INT NOT NULL DEFAULT 100,
     starts_at TIMESTAMP(6) NULL,
     ends_at TIMESTAMP(6) NULL,
@@ -15,6 +26,20 @@ CREATE TABLE IF NOT EXISTS experiments (
     INDEX idx_experiment_key (experiment_key),
     INDEX idx_status (status),
     INDEX idx_experiment_schedule (status, starts_at, ends_at)
+);
+
+CREATE TABLE IF NOT EXISTS population_policy (
+    id BIGINT PRIMARY KEY,
+    holdout_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    holdout_basis_points INT NULL
+);
+INSERT IGNORE INTO population_policy (id, holdout_key, holdout_basis_points) VALUES (1, 'global-v1', NULL);
+
+CREATE TABLE IF NOT EXISTS sticky_assignments (
+    id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
+    experiment_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    user_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    variant VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL
 );
 
 -- 2. 변형 테이블
@@ -91,4 +116,39 @@ CREATE TABLE IF NOT EXISTS experiment_guardrails (
     event_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     PRIMARY KEY (experiment_id, event_name),
     CONSTRAINT fk_guardrail_experiment FOREIGN KEY (experiment_id) REFERENCES experiments(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_inbox (
+    id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
+    event_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    payload LONGTEXT NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    attempts INT NOT NULL,
+    retry_at TIMESTAMP(6) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    INDEX idx_pipeline_due (status, retry_at, id)
+);
+CREATE TABLE IF NOT EXISTS pipeline_outbox (
+    id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
+    kind VARCHAR(16) NOT NULL,
+    payload LONGTEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS population_exposures (
+    event_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
+    cohort_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    user_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    variant VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    occurred_at TIMESTAMP(6) NOT NULL,
+    INDEX idx_population_exposures (cohort_key, variant, user_id)
+);
+CREATE TABLE IF NOT EXISTS population_conversions (
+    event_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
+    cohort_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    user_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    variant VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    event_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    exposure_event_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    occurred_at TIMESTAMP(6) NOT NULL,
+    INDEX idx_population_outcomes (cohort_key, variant, user_id),
+    CONSTRAINT fk_population_exposure FOREIGN KEY (exposure_event_id) REFERENCES population_exposures(event_id)
 );

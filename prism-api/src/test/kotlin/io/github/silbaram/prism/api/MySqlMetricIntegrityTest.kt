@@ -65,6 +65,7 @@ class MySqlMetricIntegrityTest {
                         }
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/030_experiment_reliability.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/031_experiment_operations.sql"))
+                        ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/032_experiment_scale.sql"))
                         assertEquals(1L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft'"))
                         assertEquals(0L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft '"))
                         assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM experiments WHERE experiment_key IN ('paused', 'ended') AND configuration_locked = TRUE"))
@@ -82,6 +83,7 @@ class MySqlMetricIntegrityTest {
                 SpringApplicationBuilder(PrismApiApplication::class.java).web(WebApplicationType.NONE).run(
                     "--spring.datasource.url=$url", "--spring.datasource.username=$username",
                     "--spring.datasource.password=$password", "--spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
+                    "--spring.datasource.hikari.maximum-pool-size=1", "--spring.datasource.hikari.connection-timeout=2000",
                     "--spring.jpa.hibernate.ddl-auto=validate", "--spring.sql.init.mode=never",
                     "--spring.jpa.properties.hibernate.show_sql=false", "--spring.main.banner-mode=off"
                 ).use { context ->
@@ -186,6 +188,7 @@ class MySqlMetricIntegrityTest {
                     assertEquals(setOf("A", "a", "A "), impressions.countImpressionsByVariant("checkout").map { it[0] }.toSet())
                     val goals = conversions.countConversionsByVariant("checkout", "purchase").associate { it[0] to it[1] }
                     assertEquals(mapOf("A" to 3L, "a" to 1L, "A " to 1L), goals)
+                    verifyScale(context)
                     verifyEventIngestion(context.getBean(EventIngestionService::class.java), impressions, conversions)
                     verifyOccurrenceOrder(context.getBean(EventIngestionService::class.java), lookup, impressions,
                         context.getBean(javax.sql.DataSource::class.java))
@@ -194,6 +197,72 @@ class MySqlMetricIntegrityTest {
                 admin.createStatement().use { it.execute("DROP DATABASE $database") }
             }
         }
+    }
+
+    private fun verifyScale(context: org.springframework.context.ConfigurableApplicationContext) {
+        val policy = context.getBean(PopulationPolicyRepository::class.java)
+        policy.saveAndFlush(PopulationPolicyEntity(holdoutKey = "permanent", holdoutBasisPoints = 500))
+        val layers = context.getBean(ExperimentLayerRepository::class.java)
+        layers.saveAndFlush(ExperimentLayerEntity("checkout-layer", "Native layer"))
+        val experiments = context.getBean(ExperimentRepository::class.java)
+        val layered = experiments.saveAndFlush(ExperimentEntity(key = "native-layer", description = "",
+            layerKey = "checkout-layer", layerStart = 0, layerEnd = 5000, stickyBucketing = true))
+        assertEquals(5000, experiments.findById(layered.id!!).orElseThrow().layerAllocation()!!.end)
+        val sticky = context.getBean(io.github.silbaram.prism.api.traffic.application.service.StickyAssignmentService::class.java)
+        val pool = Executors.newFixedThreadPool(4)
+        try {
+            val gate = CountDownLatch(4)
+            val results = (1..4).map { index -> pool.submit<String> {
+                gate.countDown(); check(gate.await(5, TimeUnit.SECONDS))
+                sticky.choose("native-layer", "concurrent", "variant-$index")
+            } }.map { it.get(15, TimeUnit.SECONDS) }
+            assertEquals(1, results.toSet().size)
+            assertEquals(results.first(), sticky.choose("native-layer", "concurrent", "replacement"))
+            assertEquals("B", sticky.choose("native-layer", "Concurrent", "B"))
+        } finally { pool.shutdownNow() }
+        val ingestion = context.getBean(EventIngestionService::class.java)
+        val population = context.getBean(PopulationExposureRepository::class.java)
+        val outcomes = context.getBean(PopulationConversionRepository::class.java)
+        val dataSource = context.getBean(javax.sql.DataSource::class.java)
+        listOf("Case", "case", "Case ").forEach { user ->
+            val cohort = if (policy.findById(1).orElseThrow().toDomain().excludes(user)) "HOLDOUT" else "ELIGIBLE"
+            val exposure = ClientEvent(UUID.randomUUID().toString(), "population_exposure", user, "permanent", cohort,
+                "2026-09-13T00:00:00.123456Z", "a".repeat(64))
+            val conversion = exposure.copy(eventId = UUID.randomUUID().toString(), type = "population_conversion",
+                timestamp = "2026-09-13T00:00:01.123456Z", eventName = "purchase", exposureEventId = exposure.eventId)
+            assertEquals(EventStatus.RETRY, ingestion.ingest(listOf(conversion)).results.single().status)
+            assertTrue(ingestion.ingest(listOf(conversion, exposure)).results.all { it.status == EventStatus.ACCEPTED })
+            assertTrue(ingestion.ingest(listOf(exposure, conversion)).results.all { it.status == EventStatus.DUPLICATE })
+            dataSource.connection.use { connection ->
+                connection.prepareStatement("SELECT UNIX_TIMESTAMP(occurred_at) * 1000000 FROM population_exposures WHERE event_id = ?").use { query ->
+                    query.setString(1, exposure.eventId)
+                    query.executeQuery().use { rows ->
+                        assertTrue(rows.next())
+                        val instant = Instant.parse(exposure.timestamp)
+                        assertEquals(instant.epochSecond * 1_000_000 + instant.nano / 1000, rows.getLong(1))
+                    }
+                }
+            }
+        }
+        assertEquals(3L, population.users("permanent").sumOf { it[1] as Long })
+        assertEquals(3L, outcomes.outcomes("permanent").sumOf { it[2] as Long })
+        assertTrue(population.users("Permanent").isEmpty())
+        val storage = context.getBean(io.github.silbaram.prism.api.pipeline.PipelineStorage::class.java)
+        val inbox = context.getBean(PipelineInboxRepository::class.java)
+        val outbox = context.getBean(PipelineOutboxRepository::class.java)
+        val event = ClientEvent(UUID.randomUUID().toString(), "exposure", "pipeline-native", "native-layer", "A",
+            "2026-09-13T00:00:00.123456Z", "a".repeat(64))
+        val json = com.fasterxml.jackson.module.kotlin.jacksonObjectMapper().writeValueAsString(event)
+        storage.receive(json); storage.receive(json)
+        assertEquals(1L, inbox.count())
+        storage.process(inbox.findAll().single().id)
+        assertEquals("DONE", inbox.findAll().single().status)
+        storage.receive("malformed")
+        val deadLetter = outbox.findAll().single()
+        assertThrows(IllegalStateException::class.java) { storage.publish(deadLetter.id) { error("Unavailable") } }
+        assertEquals(1L, outbox.count())
+        storage.publish(deadLetter.id) { assertEquals("DEAD_LETTER", it.kind) }
+        assertEquals(0L, outbox.count())
     }
 
     private fun verifyOccurrenceOrder(service: EventIngestionService, lookup: LoadImpressionPort,
@@ -270,11 +339,16 @@ class MySqlMetricIntegrityTest {
     }
 
     private fun assertExactCollations(connection: Connection) {
-        val expected = mapOf("experiments" to setOf("experiment_key", "goal_event_name"),
+        val expected = mapOf("experiments" to setOf("experiment_key", "goal_event_name", "layer_key"),
             "variants" to setOf("name"), "log_impression" to setOf("experiment_key", "variant", "user_id", "event_id"),
             "log_conversion" to setOf("experiment_key", "variant", "user_id", "event_name", "event_id"),
             "event_receipts" to setOf("event_id", "payload_hash", "config_version"),
-            "experiment_changes" to setOf("experiment_key"), "experiment_guardrails" to setOf("event_name"))
+            "experiment_changes" to setOf("experiment_key"), "experiment_guardrails" to setOf("event_name"),
+            "population_policy" to setOf("holdout_key"), "experiment_layers" to setOf("layer_key"),
+            "sticky_assignments" to setOf("id", "experiment_key", "user_id", "variant"),
+            "pipeline_inbox" to setOf("id", "event_id"), "pipeline_outbox" to setOf("id"),
+            "population_exposures" to setOf("event_id", "cohort_key", "user_id", "variant"),
+            "population_conversions" to setOf("event_id", "cohort_key", "user_id", "variant", "event_name", "exposure_event_id"))
         val checked = mutableSetOf<Pair<String, String>>()
         connection.createStatement().use { sql ->
             sql.executeQuery("SELECT TABLE_NAME, COLUMN_NAME, COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()").use { rows ->

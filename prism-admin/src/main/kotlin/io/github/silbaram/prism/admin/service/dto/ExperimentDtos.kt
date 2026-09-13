@@ -18,7 +18,9 @@ data class ExperimentCreateDto(
     val trafficAllocation: Int = 100,
     val startsAt: java.time.LocalDateTime? = null,
     val endsAt: java.time.LocalDateTime? = null,
-    val guardrailEventNames: Set<String> = emptySet()
+    val guardrailEventNames: Set<String> = emptySet(),
+    val layerKey: String? = null, val layerStart: Int? = null, val layerEnd: Int? = null,
+    val stickyBucketing: Boolean = false
 )
 
 data class ExperimentUpdateDto(
@@ -31,5 +33,7 @@ data class ExperimentUpdateDto(
     val trafficAllocation: Int = 100,
     val startsAt: java.time.LocalDateTime? = null,
     val endsAt: java.time.LocalDateTime? = null,
-    val guardrailEventNames: Set<String> = emptySet()
+    val guardrailEventNames: Set<String> = emptySet(),
+    val layerKey: String? = null, val layerStart: Int? = null, val layerEnd: Int? = null,
+    val stickyBucketing: Boolean = false
 )

@@ -9,7 +9,8 @@ data class ExperimentFormView(
     val status: ExperimentStatus, val selectedStatus: String, val configurationLocked: Boolean,
     val trafficAllocation: String, val minimumAllocation: Int,
     val startsAt: String, val endsAt: String, val guardrailEvents: String,
-    val variants: List<VariantInput>, val targetingRules: List<RuleInput>
+    val variants: List<VariantInput>, val targetingRules: List<RuleInput>,
+    val layerKey: String, val layerStart: String, val layerEnd: String, val stickyBucketing: Boolean
 ) {
     data class VariantInput(val name: String, val weight: String)
     data class RuleInput(val expression: String)
@@ -31,7 +32,10 @@ data class ExperimentFormView(
                 else if (entity.id == null) listOf(VariantInput("", "50"), VariantInput("", "50"))
                 else entity.variants.map { VariantInput(it.name, it.weight.toString()) },
                 if (input != null) indices("targetingRules", 100).map { RuleInput(value("targetingRules[$it].expression", "")) }
-                else entity.targetingRules.map { RuleInput(it.expression) })
+                else entity.targetingRules.map { RuleInput(it.expression) },
+                value("layerKey", entity.layerKey.orEmpty()), value("layerStart", entity.layerStart?.toString().orEmpty()),
+                value("layerEnd", entity.layerEnd?.toString().orEmpty()),
+                if (input == null) entity.stickyBucketing else input["stickyBucketing"] == "true")
         }
     }
 }

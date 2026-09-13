@@ -27,11 +27,14 @@ import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.Impres
 class ExperimentService(
     private val experimentRepository: ExperimentRepository,
     private val changeRepository: ExperimentChangeRepository,
-    private val impressionRepository: ImpressionLogRepository
+    private val impressionRepository: ImpressionLogRepository,
+    private val population: PopulationService
 ) {
     private val mapper = jacksonObjectMapper()
 
     fun createExperiment(dto: ExperimentCreateDto): ExperimentEntity {
+        population.lock()
+        population.validateLayer(null, dto.layerKey, dto.layerStart, dto.layerEnd)
         validateExperimentIdentities(dto.key, dto.variants.map { it.name })
         validateUniqueKey(dto.key)
         validateWeights(dto.variants.map { it.weight })
@@ -45,7 +48,8 @@ class ExperimentService(
             goalEventName = dto.goalEventName.trim(),
             status = ExperimentStatus.DRAFT,
             trafficAllocation = dto.trafficAllocation, startsAt = dto.startsAt, endsAt = dto.endsAt,
-            guardrailEventNames = dto.guardrailEventNames.toMutableSet()
+            guardrailEventNames = dto.guardrailEventNames.toMutableSet(),
+            layerKey = dto.layerKey, layerStart = dto.layerStart, layerEnd = dto.layerEnd, stickyBucketing = dto.stickyBucketing
         )
 
         dto.variants.forEach { variant ->
@@ -62,6 +66,7 @@ class ExperimentService(
     }
 
     fun updateExperiment(id: Long, dto: ExperimentUpdateDto): ExperimentEntity {
+        population.lock()
         val experiment = findForUpdate(id)
         val before = snapshot(experiment)
         val locked = isLocked(experiment)
@@ -78,6 +83,8 @@ class ExperimentService(
 
         val rules = dto.targetingRules.map { it.expression }.let { if (locked) it else it.filter(String::isNotBlank) }
         if (locked) {
+            require(experiment.layerKey == dto.layerKey && experiment.layerStart == dto.layerStart && experiment.layerEnd == dto.layerEnd &&
+                experiment.stickyBucketing == dto.stickyBucketing) { "시작·예약한 실험의 레이어 범위와 배정 유지 정책은 변경할 수 없습니다." }
             require(experiment.key == dto.key && experiment.goalEventName.orEmpty() == dto.goalEventName &&
                 experiment.variants.map { it.name to it.weight } == dto.variants.map { it.name to it.weight } &&
                 experiment.targetingRules.map { it.expression } == rules) {
@@ -92,6 +99,7 @@ class ExperimentService(
         }
         validateTransition(experiment, dto.status)
         validateActivation(dto.status, dto.startsAt, dto.endsAt)
+        population.validateLayer(id, dto.layerKey, dto.layerStart, dto.layerEnd)
 
         experiment.key = dto.key
         experiment.description = dto.description
@@ -101,6 +109,10 @@ class ExperimentService(
         experiment.trafficAllocation = dto.trafficAllocation
         experiment.startsAt = dto.startsAt
         experiment.endsAt = dto.endsAt
+        experiment.layerKey = dto.layerKey
+        experiment.layerStart = dto.layerStart
+        experiment.layerEnd = dto.layerEnd
+        experiment.stickyBucketing = dto.stickyBucketing
         if (experiment.guardrailEventNames != dto.guardrailEventNames) {
             experiment.guardrailEventNames.clear()
             experiment.guardrailEventNames.addAll(dto.guardrailEventNames)
@@ -121,6 +133,7 @@ class ExperimentService(
     }
 
     fun deleteExperiment(id: Long) {
+        population.lock()
         val experiment = findForUpdate(id)
         require(!isLocked(experiment)) { "시작했거나 노출이 있는 실험은 삭제할 수 없습니다. 종료 상태로 보존하세요." }
         changeRepository.save(ExperimentChangeEntity(experimentId = id, experimentKey = experiment.key,
@@ -156,6 +169,7 @@ class ExperimentService(
     }
 
     fun startExperiment(id: Long): ExperimentEntity {
+        population.lock() // Audit IDs must follow commit order for SSE revisions.
         val experiment = findForUpdate(id)
         val before = snapshot(experiment)
         validateTransition(experiment, ExperimentStatus.ACTIVE)
@@ -172,6 +186,7 @@ class ExperimentService(
     }
 
     fun pauseExperiment(id: Long): ExperimentEntity {
+        population.lock() // Audit IDs must follow commit order for SSE revisions.
         val experiment = findForUpdate(id)
         val before = snapshot(experiment)
         validateTransition(experiment, ExperimentStatus.PAUSED)
@@ -204,6 +219,8 @@ class ExperimentService(
         "status" to experiment.status, "configurationLocked" to experiment.configurationLocked,
         "trafficAllocation" to experiment.trafficAllocation, "startsAt" to experiment.startsAt?.toString(),
         "endsAt" to experiment.endsAt?.toString(), "guardrailEventNames" to experiment.guardrailEventNames.sorted(),
+        "layerKey" to experiment.layerKey, "layerStart" to experiment.layerStart, "layerEnd" to experiment.layerEnd,
+        "stickyBucketing" to experiment.stickyBucketing,
         "variants" to experiment.variants.map { linkedMapOf("name" to it.name, "weight" to it.weight) },
         "targetingRules" to experiment.targetingRules.map { it.expression }
     ))
@@ -219,6 +236,7 @@ class ExperimentService(
     }
 
     fun advanceSchedule(id: Long, now: java.time.LocalDateTime) {
+        population.lock() // Audit IDs must follow commit order for SSE revisions.
         val experiment = experimentRepository.findForUpdate(id) ?: return
         val before = snapshot(experiment)
         when {

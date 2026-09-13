@@ -6,13 +6,16 @@ import io.github.silbaram.prism.core.splitter.TrafficSplitter
 import io.github.silbaram.prism.core.targeting.UserContext
 import io.github.silbaram.prism.admin.exception.ExperimentNotFoundException
 import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.PopulationPolicyRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.layerAllocation
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 @Service
 @Transactional(readOnly = true)
 class SimulatorService(
-    private val experimentRepository: ExperimentRepository
+    private val experimentRepository: ExperimentRepository,
+    private val policies: PopulationPolicyRepository
 ) {
 
     fun simulateAssignment(experimentId: Long, userId: String): SimulationResult {
@@ -26,7 +29,8 @@ class SimulatorService(
             targetingRules = emptyList(),
             trafficAllocation = experimentEntity.trafficAllocation,
             startsAt = experimentEntity.startsAt?.toInstant(java.time.ZoneOffset.UTC),
-            endsAt = experimentEntity.endsAt?.toInstant(java.time.ZoneOffset.UTC)
+            endsAt = experimentEntity.endsAt?.toInstant(java.time.ZoneOffset.UTC),
+            layer = experimentEntity.layerAllocation(), holdout = policies.findById(1).orElseThrow().toDomain()
         )
 
         val assignedVariant = TrafficSplitter.assign(experiment, userId, UserContext(emptyMap()))

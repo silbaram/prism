@@ -19,7 +19,9 @@ data class PrismProperties(
     var exposureCacheMaximumSize: Long = 10_000,
     var shutdownTimeout: Duration = Duration.ofSeconds(5),
     var exposureDedupCapacity: Int = 100_000,
-    var apiKey: String? = null
+    var apiKey: String? = null,
+    var configStreaming: Boolean = false,
+    var stickyAssignmentsDirectory: String? = null
 ) {
     override fun toString() = "PrismProperties(url=$url, evaluationMode=$evaluationMode, apiKey=<redacted>)"
 }

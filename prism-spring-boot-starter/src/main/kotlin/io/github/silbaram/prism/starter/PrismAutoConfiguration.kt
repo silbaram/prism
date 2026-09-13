@@ -42,7 +42,11 @@ class PrismAutoConfiguration(
                 exposureCacheMaximumSize = properties.exposureCacheMaximumSize,
                 shutdownTimeout = properties.shutdownTimeout,
                 exposureDedupCapacity = properties.exposureDedupCapacity,
-                apiKey = properties.apiKey
+                apiKey = properties.apiKey,
+                configStreaming = properties.configStreaming,
+                stickyAssignmentStore = properties.stickyAssignmentsDirectory?.let {
+                    io.github.silbaram.prism.sdk.FileStickyAssignmentStore(java.nio.file.Path.of(it))
+                } ?: io.github.silbaram.prism.sdk.InMemoryStickyAssignmentStore()
             )
         )
     }

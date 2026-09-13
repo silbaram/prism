@@ -123,7 +123,9 @@ class AdminExperimentController(
             targetingRules = form.targetingRules.map { TargetingRuleDto(it.expression) },
             trafficAllocation = form.trafficAllocation,
             startsAt = parseTime(form.startsAt), endsAt = parseTime(form.endsAt),
-            guardrailEventNames = form.guardrailEvents.lines().map(String::trim).filter(String::isNotBlank).toSet()
+            guardrailEventNames = form.guardrailEvents.lines().map(String::trim).filter(String::isNotBlank).toSet(),
+            layerKey = form.layerKey.takeIf { it.isNotBlank() }, layerStart = form.layerStart, layerEnd = form.layerEnd,
+            stickyBucketing = form.stickyBucketing
         )
         experimentService.createExperiment(createDto)
         return ModelAndView("redirect:/admin/experiments")
@@ -151,7 +153,9 @@ class AdminExperimentController(
             targetingRules = form.targetingRules.map { TargetingRuleDto(it.expression) },
             trafficAllocation = form.trafficAllocation,
             startsAt = parseTime(form.startsAt), endsAt = parseTime(form.endsAt),
-            guardrailEventNames = form.guardrailEvents.lines().map(String::trim).filter(String::isNotBlank).toSet()
+            guardrailEventNames = form.guardrailEvents.lines().map(String::trim).filter(String::isNotBlank).toSet(),
+            layerKey = form.layerKey.takeIf { it.isNotBlank() }, layerStart = form.layerStart, layerEnd = form.layerEnd,
+            stickyBucketing = form.stickyBucketing
         )
         experimentService.updateExperiment(id, updateDto)
         return ModelAndView("redirect:/admin/experiments")

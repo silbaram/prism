@@ -42,7 +42,7 @@
 
         <!-- 결과 표시 -->
         <div th:if="${simulationCompleted == true and result == null}" class="alert alert-info">
-            <strong>미참여</strong>: 현재 시각이 실험 기간 밖이거나, 이 사용자가 참여 비율에 포함되지 않습니다.
+            <strong>미참여</strong>: 실험 기간, 참여 비율, 레이어 범위 또는 전역 홀드아웃 조건에 해당합니다.
         </div>
         <div th:if="${result != null}" class="card shadow-sm border-success">
             <div class="card-header bg-success text-white">
@@ -68,7 +68,7 @@
                 </div>
                 <div class="card-body">
                     <ul class="mb-0">
-                        <li>참여 비율과 현재 시각에 따른 실험 기간을 확인하며, 미참여일 수도 있습니다.</li>
+                        <li>참여 비율, 실험 기간, 레이어와 전역 홀드아웃을 확인합니다. 저장된 최초 배정은 조회하지 않는 미리보기입니다.</li>
                         <li>참여 사용자는 동일한 User ID와 변형 설정에서 같은 그룹에 배정됩니다.</li>
                         <li>User ID를 변경하면 다른 그룹에 배정될 수 있습니다.</li>
                         <li>초안도 미리 확인할 수 있습니다. 실험 상태와 사용자 속성에 따른 타겟팅은 이 화면에서 평가하지 않습니다.</li>

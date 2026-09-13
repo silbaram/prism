@@ -148,3 +148,16 @@ val accepted = conversionTracker.trackConversionSafe("user-123", "checkout", "pu
 LOCAL 노출은 공유 client 수명 동안 사용자×실험별로 중복 제거합니다. `exposure-dedup-capacity` 도달 시 새 조합의 노출은 실패하므로 예상 사용자 수에 맞게 설정하세요. 어노테이션과 Strategy는 실제 경험을 제공하는 시점에 사용합니다. 화면 준비와 노출이 다르면 SDK의 `evaluate()` / `recordExposure()`로 분리하세요. [Phase 2 정책](../docs/issue-28-phase-2.md)을 참고하세요.
 
 Phase 3 API는 설정·이벤트·기존 원격 API 모두 키를 요구합니다. 키는 서버의 `PRISM_API_KEYS`와 일치해야 합니다. 참여 비율·기간을 쓰기 전에 모든 소비자를 새 SDK/스타터로 갱신하세요. [Phase 3 운영·배포 가이드](../docs/issue-28-phase-3.md)를 참고하세요.
+
+## Phase 4 선택 설정
+
+```yaml
+prism:
+  client:
+    config-streaming: true
+    sticky-assignments-directory: /var/lib/my-app/prism-prod
+```
+
+SSE는 정기 폴링을 유지하면서 변경 전파를 빠르게 합니다. 저장소 디렉터리를 생략하면 최초 배정은 메모리에만 유지합니다. 디렉터리는 환경별로 분리하고 영속 볼륨을 사용하세요. 여러 호스트 간 공유는 사용자 정의 `StickyAssignmentStore`를 사용하는 `PrismClient` 빈으로 구성합니다.
+
+레이어와 영구 홀드아웃은 Admin에서 설정합니다. 누적 효과 계측은 `PrismExperimentClient.recordPopulationExposure`/`trackPopulationConversion`으로 명시적으로 실행합니다. [Phase 4 가이드](../docs/issue-28-phase-4.md)를 참고하세요.

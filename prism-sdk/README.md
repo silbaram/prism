@@ -118,3 +118,11 @@ Admin CVR은 **목표 이벤트 발생 고유 사용자 / 노출 고유 사용�
 `verifySdkPublication`은 common·core·SDK를 빌드 디렉터리의 임시 Maven 저장소에 게시하고, 독립 Java 프로젝트가 Gradle 모듈 메타데이터와 POM으로 각각 로컬 할당·SpEL 타기팅·이벤트 배치를 실행하는지 검증합니다. `check`와 `build`에 포함됩니다.
 
 Phase 3 서버는 모든 HTTP 경로에 API 키를 요구합니다. `PrismClientOptions.apiKey` 또는 Java의 `new PrismClient(url, apiKey)`를 사용하세요. 참여 비율과 UTC 기간은 동기화된 설정으로 로컬에서 검사하며, 알고 있는 종료 시각 이후에는 설정 서버 장애 중에도 할당하지 않습니다. 운영 기능 사용 전 모든 SDK를 갱신해야 합니다. [인증·배포 정책](../docs/issue-28-phase-3.md)을 참고하세요.
+
+## 레이어, 홀드아웃, 배정 유지와 실시간 설정
+
+서버에서 지정한 레이어와 전역 홀드아웃을 로컬 평가에 적용합니다. `PrismClientOptions(configStreaming = true)`로 SSE 설정 전파를 켜면 기존 폴링과 함께 동작합니다. `stickyAssignmentStore = FileStickyAssignmentStore(Path.of("/var/lib/my-app/prism-prod"))`로 동일 호스트의 재시작 간 최초 배정을 유지할 수 있습니다. 기본 저장소는 client 수명의 메모리 저장소입니다.
+
+`recordPopulationExposure(userId)`를 공통 서비스 진입 시 모든 사용자에게 실행하고, 전환 시 `trackPopulationConversion(userId, eventName)`을 호출하면 홀드아웃/실험 참여 가능 집단의 누적 결과를 별도 계측합니다. LOCAL 모드 전용이며 같은 client에서 선행 모집단 노출이 필요합니다. `isInHoldout(userId)`는 정책을 모르면 null을 반환합니다.
+
+Kafka 모드에서 `flush()` 성공은 Kafka 수신 확인(`QUEUED`)까지이며 집계 완료는 비동기입니다. [Phase 4의 배포 순서·저장소 계약·계측 예시](../docs/issue-28-phase-4.md)를 참고하세요.

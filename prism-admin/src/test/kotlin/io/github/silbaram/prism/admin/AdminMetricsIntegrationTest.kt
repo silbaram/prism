@@ -40,6 +40,10 @@ class AdminMetricsIntegrationTest {
     @Autowired lateinit var service: ExperimentService
     @Autowired lateinit var transactions: PlatformTransactionManager
     @Autowired lateinit var dataSource: javax.sql.DataSource
+    @Autowired lateinit var policies: PopulationPolicyRepository
+    @Autowired lateinit var layers: ExperimentLayerRepository
+    @Autowired lateinit var populationExposures: PopulationExposureRepository
+    @Autowired lateinit var populationConversions: PopulationConversionRepository
     private val http = HttpClient.newBuilder().cookieHandler(java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL)).build()
     private fun uri(path: String) = URI.create("http://localhost:${environment.getProperty("local.server.port")}$path")
     private fun get(path: String): String {
@@ -62,10 +66,44 @@ class AdminMetricsIntegrationTest {
     @BeforeEach
     fun clean() {
         conversions.deleteAll(); impressions.deleteAll(); experiments.deleteAll(); changes.deleteAll()
+        populationConversions.deleteAll(); populationExposures.deleteAll(); layers.deleteAll()
+        policies.save(PopulationPolicyEntity())
         val loginPage = http.send(HttpRequest.newBuilder(uri("/login")).GET().build(), HttpResponse.BodyHandlers.ofString())
         val login = postRaw(http, "/login", mapOf("username" to "admin", "password" to "prism-test-password", "_csrf" to csrf(loginPage.body())))
         assertEquals(302, login.statusCode(), login.body())
         assertFalse(login.headers().firstValue("Location").orElse("").contains("error"))
+    }
+
+    @Test
+    fun `configuration changes on separate experiments commit in audit revision order`() {
+        val first = service.createExperiment(ExperimentCreateDto("first", "", "purchase", listOf(VariantDto("A", 100))))
+        val second = service.createExperiment(ExperimentCreateDto("second", "", "purchase", listOf(VariantDto("A", 100))))
+        val recorded = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val secondStarted = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val pending = pool.submit<Long> { TransactionTemplate(transactions).execute {
+                service.startExperiment(first.id!!)
+                val revision = changes.latestRevision()
+                recorded.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                revision
+            }!! }
+            assertTrue(recorded.await(3, TimeUnit.SECONDS))
+            val later = pool.submit {
+                secondStarted.countDown()
+                service.startExperiment(second.id!!)
+            }
+            assertTrue(secondStarted.await(1, TimeUnit.SECONDS))
+            assertThrows(TimeoutException::class.java) { later.get(200, TimeUnit.MILLISECONDS) }
+            release.countDown()
+            val firstRevision = pending.get(3, TimeUnit.SECONDS)
+            later.get(3, TimeUnit.SECONDS)
+            assertTrue(changes.latestRevision() > firstRevision)
+            assertEquals(ExperimentStatus.ACTIVE, experiments.findById(first.id!!).orElseThrow().status)
+            assertEquals(ExperimentStatus.ACTIVE, experiments.findById(second.id!!).orElseThrow().status)
+        } finally { release.countDown(); pool.shutdownNow() }
     }
 
     @Test
@@ -207,6 +245,30 @@ class AdminMetricsIntegrationTest {
             assertEquals(ExperimentStatus.ACTIVE, experiments.findById(id).orElseThrow().status)
             assertEquals(2, changes.findTop50ByExperimentIdOrderByIdDesc(id).size)
         } finally { workers.shutdownNow() }
+    }
+
+    @Test
+    fun `layer ranges and holdout are validated locked audited and rendered`() {
+        assertEquals(302, post("/admin/population/layers", mapOf("key" to "checkout", "description" to "Checkout tests")).statusCode())
+        assertEquals(302, post("/admin/population/holdout", mapOf("key" to "global", "basisPoints" to "500")).statusCode())
+        assertEquals(400, post("/admin/population/holdout", mapOf("key" to "global", "basisPoints" to "600")).statusCode())
+        assertTrue(get("/admin/population").contains("고정됨"))
+        assertTrue(get("/admin/population").contains("CREATE_LAYER"))
+        val fields = mapOf("key" to "layer-a", "goalEventName" to "purchase", "variants[0].name" to "A",
+            "variants[0].weight" to "100", "layerKey" to "checkout", "layerStart" to "0", "layerEnd" to "5000", "stickyBucketing" to "true")
+        assertEquals(302, post("/admin/experiments", fields).statusCode())
+        val id = experiments.findByKey("layer-a")!!.id!!
+        assertEquals(400, post("/admin/experiments", fields + ("key" to "overlap")).statusCode())
+        assertEquals(302, post("/admin/experiments", fields + mapOf("key" to "layer-b", "layerStart" to "5000", "layerEnd" to "10000")).statusCode())
+        assertEquals(302, post("/admin/experiments/$id", fields + ("status" to "ACTIVE")).statusCode())
+        val edit = get("/admin/experiments/$id/edit")
+        assertTrue(edit.contains("value=\"checkout\""))
+        assertTrue(edit.contains("name=\"stickyBucketing\" value=\"true\""))
+        assertEquals(400, post("/admin/experiments/$id", fields + mapOf("status" to "ACTIVE", "layerEnd" to "6000")).statusCode())
+        assertEquals(302, post("/admin/experiments/$id", fields + ("status" to "ENDED")).statusCode())
+        assertEquals(400, post("/admin/experiments", fields + ("key" to "reuse-ended")).statusCode())
+        assertEquals(2, changes.findTop50ByExperimentIdOrderByIdDesc(0).size)
+        assertTrue(changes.findTop50ByExperimentIdOrderByIdDesc(0).all { it.actor == "admin" })
     }
 
     @Test
@@ -420,6 +482,8 @@ class AdminMetricsIntegrationTest {
         assertEquals(200, list.statusCode())
         assertFalse(list.body().contains("새 실험 만들기"))
         assertEquals(403, request("/admin/experiments/new").statusCode())
+        assertEquals(200, request("/admin/population").statusCode())
+        assertEquals(403, postRaw(anonymous, "/admin/population/holdout", mapOf("key" to "forbidden", "basisPoints" to "500", "_csrf" to csrf(list.body()))).statusCode())
         assertEquals(403, postRaw(anonymous, "/admin/experiments", mapOf("_csrf" to csrf(list.body()))).statusCode())
         assertEquals(403, postRaw(http, "/admin/experiments", emptyMap()).statusCode())
         assertEquals(302, postRaw(anonymous, "/logout", mapOf("_csrf" to csrf(list.body()))).statusCode())

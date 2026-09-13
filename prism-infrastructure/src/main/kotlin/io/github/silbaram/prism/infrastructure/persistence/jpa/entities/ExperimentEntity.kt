@@ -49,7 +49,11 @@ class ExperimentEntity(
     @ElementCollection
     @CollectionTable(name = "experiment_guardrails", joinColumns = [JoinColumn(name = "experiment_id")])
     @Column(name = "event_name", nullable = false)
-    var guardrailEventNames: MutableSet<String> = linkedSetOf()
+    var guardrailEventNames: MutableSet<String> = linkedSetOf(),
+    @Column(name = "layer_key") var layerKey: String? = null,
+    @Column(name = "layer_start") var layerStart: Int? = null,
+    @Column(name = "layer_end") var layerEnd: Int? = null,
+    @Column(name = "sticky_bucketing", nullable = false) var stickyBucketing: Boolean = false
 ) {
     fun addVariant(variant: VariantEntity) {
         variants.add(variant)

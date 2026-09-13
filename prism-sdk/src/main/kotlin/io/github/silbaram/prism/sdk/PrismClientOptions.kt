@@ -15,7 +15,9 @@ data class PrismClientOptions @JvmOverloads constructor(
     val exposureCacheMaximumSize: Long = 10_000,
     val shutdownTimeout: Duration = Duration.ofSeconds(5),
     val exposureDedupCapacity: Int = 100_000,
-    val apiKey: String? = null
+    val apiKey: String? = null,
+    val stickyAssignmentStore: StickyAssignmentStore = InMemoryStickyAssignmentStore(),
+    val configStreaming: Boolean = false
 ) {
     init {
         require(configSyncInterval.toMillis() > 0 && eventFlushInterval.toMillis() > 0)

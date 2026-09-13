@@ -16,6 +16,6 @@ data class ClientEvent(
 data class EventsRequest(val events: List<ClientEvent>)
 data class EventsResponse(val results: List<EventResult>)
 
-/** ACCEPTED/DUPLICATE are committed; REJECTED is permanent; RETRY preserves the original ID. */
+/** ACCEPTED/DUPLICATE are materialized; QUEUED is durably admitted to the pipeline. */
 data class EventResult(val eventId: String, val status: EventStatus, val message: String? = null)
-enum class EventStatus { ACCEPTED, DUPLICATE, REJECTED, RETRY }
+enum class EventStatus { ACCEPTED, DUPLICATE, QUEUED, REJECTED, RETRY }

@@ -40,6 +40,9 @@
                             </p>
                         </div>
                         <div class="mb-3">
+                            <p th:if="${experiment.layerKey != null}">레이어: <strong th:text="${experiment.layerKey}"></strong>
+                                (<span th:text="${experiment.layerStart}"></span> 이상, <span th:text="${experiment.layerEnd}"></span> 미만)</p>
+                            <p>최초 배정 유지: <strong th:text="${experiment.stickyBucketing ? '사용' : '미사용'}"></strong></p>
                             <p>참여 비율: <strong th:text="${experiment.trafficAllocation + '%'}"></strong></p>
                             <p>시작 (UTC): <span th:text="${experiment.startsAt ?: '미지정'}"></span></p>
                             <p>종료 (UTC): <span th:text="${experiment.endsAt ?: '미지정'}"></span></p>

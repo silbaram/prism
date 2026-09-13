@@ -47,6 +47,9 @@ class PrismClient @JvmOverloads constructor(
 
     fun recordExposure(assignment: AssignmentResponse): Boolean = local?.recordExposure(assignment) ?: false
     fun refreshConfig(): Boolean = local?.refreshConfig() ?: false
+    fun isInHoldout(userId: String): Boolean? = local?.isInHoldout(userId)
+    fun recordPopulationExposure(userId: String): Boolean = local?.recordPopulationExposure(userId) ?: false
+    fun trackPopulationConversion(userId: String, eventName: String): Boolean = local?.trackPopulationConversion(userId, eventName) ?: false
     fun flush(): Boolean = local?.flush() ?: true
     val pendingEventCount: Int get() = local?.pendingEventCount ?: 0
     override fun close() {

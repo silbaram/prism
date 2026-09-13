@@ -7,7 +7,6 @@ import io.github.silbaram.prism.api.traffic.application.port.out.LoadExperimentP
 import io.github.silbaram.prism.api.traffic.application.port.out.RecordImpressionPort
 import io.github.silbaram.prism.core.splitter.TrafficSplitter
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 
 /**
  * 변형 할당 서비스 (Application Service / Use Case Implementation).
@@ -28,7 +27,8 @@ import org.springframework.transaction.annotation.Transactional
 @Service
 class AssignVariantService(
     private val loadExperimentPort: LoadExperimentPort,
-    private val recordImpressionPort: RecordImpressionPort
+    private val recordImpressionPort: RecordImpressionPort,
+    private val sticky: StickyAssignmentService
 ) : AssignVariantUseCase {
 
     /**
@@ -47,7 +47,8 @@ class AssignVariantService(
      * @param command 할당 요청 커맨드
      * @return 할당 결과
      */
-    @Transactional
+    // Each persistence operation commits before the next one; sticky insertion must not
+    // request a second connection while an outer assignment transaction holds the first.
     override fun assignVariant(command: AssignVariantCommand): AssignVariantResult {
         // 1단계: 실험 조회
         val experiment = loadExperimentPort.loadExperiment(command.experimentKey)
@@ -59,7 +60,8 @@ class AssignVariantService(
         // 2단계: 변형 할당 (Domain Layer의 비즈니스 로직 사용)
         val variant = TrafficSplitter.assign(experiment, command.userId)
             ?: return AssignVariantResult.experimentNotFound(command.userId, command.experimentKey)
-        val variantName = variant.name
+        val variantName = if (experiment.stickyBucketing) sticky.choose(experiment.key, command.userId, variant.name) else variant.name
+        if (experiment.variants.none { it.name == variantName }) return AssignVariantResult.experimentNotFound(command.userId, command.experimentKey)
 
         // 3단계: 노출 이벤트 기록 (응답 전에 커밋)
         if (variantName.isNotEmpty()) {

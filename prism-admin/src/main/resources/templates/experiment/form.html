@@ -68,6 +68,26 @@
                 </div>
 
                 <div class="mb-3">
+                    <label class="form-label">상호배타 레이어</label>
+                    <input name="layerKey" class="form-control" th:value="${experiment.layerKey}" th:readonly="${locked}" maxlength="255">
+                    <div class="form-text"><a href="/admin/population">실험 참여 관리</a>에서 생성한 레이어 키입니다. 비우면 독립 실험입니다.</div>
+                    <div class="row mt-2">
+                        <div class="col"><label>시작 버킷 (포함)</label><input name="layerStart" type="number" min="0" max="9999" class="form-control" th:value="${experiment.layerStart}" th:readonly="${locked}"></div>
+                        <div class="col"><label>종료 버킷 (제외)</label><input name="layerEnd" type="number" min="1" max="10000" class="form-control" th:value="${experiment.layerEnd}" th:readonly="${locked}"></div>
+                    </div>
+                    <div class="form-text">예: 두 실험을 0–5000과 5000–10000으로 나누면 같은 사용자가 둘 다 참여하지 않습니다.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">배정 유지 (Sticky bucketing)</label>
+                    <select name="stickyBucketing" class="form-select" th:disabled="${locked}">
+                        <option value="false" th:selected="${!experiment.stickyBucketing}">사용 안 함</option>
+                        <option value="true" th:selected="${experiment.stickyBucketing}">최초 배정 유지</option>
+                    </select>
+                    <input th:if="${locked}" type="hidden" name="stickyBucketing" th:value="${experiment.stickyBucketing}">
+                    <div class="form-text">사용자의 최초 변형을 유지합니다. 기간·홀드아웃·레이어·참여 조건은 계속 적용합니다. 로컬 SDK의 유지 범위는 배정 저장소 설정에 따릅니다.</div>
+                </div>
+
+                <div class="mb-3">
                     <label class="form-label">상태</label>
                     <select name="status" class="form-select" th:if="${experiment.id != null}">
                         <option th:if="${!#lists.contains({'DRAFT', 'SCHEDULED', 'ACTIVE', 'PAUSED', 'ENDED'}, experiment.selectedStatus)}"

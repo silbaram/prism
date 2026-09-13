@@ -17,7 +17,9 @@ data class ExperimentFormDto(
     @field:Max(100, message = "참여 비율은 0–100%여야 합니다.") val trafficAllocation: Int = 100,
     val startsAt: String = "",
     val endsAt: String = "",
-    val guardrailEvents: String = ""
+    val guardrailEvents: String = "",
+    val layerKey: String = "", val layerStart: Int? = null, val layerEnd: Int? = null,
+    val stickyBucketing: Boolean = false
 )
 
 data class VariantFormDto(

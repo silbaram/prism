@@ -6,12 +6,12 @@ import org.springframework.web.bind.annotation.*
 import org.springframework.web.server.ResponseStatusException
 
 @RestController
-class EventsController(private val ingestion: EventIngestionService) {
+class EventsController(private val admission: io.github.silbaram.prism.api.pipeline.EventAdmission) {
     @PostMapping("/v1/events")
     fun events(@RequestBody request: EventsRequest): EventsResponse {
         if (request.events.size !in 1..1000 || request.events.map { it.eventId }.toSet().size != request.events.size) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Send 1-1000 events with distinct event IDs")
         }
-        return ingestion.ingest(request.events)
+        return admission.admit(request.events)
     }
 }

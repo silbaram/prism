@@ -8,7 +8,10 @@ data class Experiment(
     val targetingRules: List<TargetingRule> = emptyList(),
     val trafficAllocation: Int = 100,
     val startsAt: java.time.Instant? = null,
-    val endsAt: java.time.Instant? = null
+    val endsAt: java.time.Instant? = null,
+    val layer: LayerAllocation? = null,
+    val holdout: HoldoutPolicy = HoldoutPolicy(),
+    val stickyBucketing: Boolean = false
 ) {
     init {
         validateVariantWeights(variants.map { it.weight })

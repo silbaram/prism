@@ -38,7 +38,7 @@ class ExperimentServiceTest : FunSpec({
     val experimentRepository = mockk<ExperimentRepository>(relaxed = true)
     val changes = mockk<ExperimentChangeRepository>(relaxed = true)
     val impressions = mockk<ImpressionLogRepository>(relaxed = true)
-    val experimentService = ExperimentService(experimentRepository, changes, impressions)
+    val experimentService = ExperimentService(experimentRepository, changes, impressions, mockk<io.github.silbaram.prism.admin.service.PopulationService>(relaxed = true))
 
     beforeTest {
         clearMocks(experimentRepository, changes, impressions)
