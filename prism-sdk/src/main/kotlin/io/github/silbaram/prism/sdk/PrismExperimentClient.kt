@@ -5,6 +5,7 @@ import io.github.silbaram.prism.common.rest.ResponseCode
 import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
 import org.slf4j.LoggerFactory
 import java.time.Duration
+import io.github.silbaram.prism.common.rest.dto.event.ExposureAnalysisContext
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 
@@ -27,10 +28,11 @@ class PrismExperimentClient @JvmOverloads constructor(
 
     /** Registers actual exposure: LOCAL deduplicates during client lifetime; REMOTE persists each call. */
     @JvmOverloads
-    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any> = emptyMap()): AssignmentOutcome {
+    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any> = emptyMap(), analysis: ExposureAnalysisContext? = null): AssignmentOutcome {
         val key = AssignmentKey(userId, experimentKey)
         val outcome = safely(userId, experimentKey) {
-            if (attributes.isEmpty()) prismClient.assign(userId, experimentKey)
+            if (analysis != null) prismClient.assign(userId, experimentKey, attributes, analysis)
+            else if (attributes.isEmpty()) prismClient.assign(userId, experimentKey)
             else prismClient.assign(userId, experimentKey, attributes)
         }
         if (outcome.assigned) {

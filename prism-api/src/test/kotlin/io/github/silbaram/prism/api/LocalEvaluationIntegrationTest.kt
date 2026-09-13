@@ -71,6 +71,15 @@ class LocalEvaluationIntegrationTest {
         exposure.userId, exposure.experimentKey, exposure.variant, Instant.now().toString(), exposure.configVersion,
         "purchase", exposure.eventId)
 
+    @Test fun `HTTP batch rejects an unrepresentable baseline instant and still accepts its valid event`() {
+        val invalid = exposure("invalid-time").copy(analysis = ExposureAnalysisContext(baselineValue = 1.0,
+            baselineMeasuredAt = "+1000000000-01-01T00:00:00Z"))
+        val valid = exposure("valid-time")
+        assertEquals(listOf(EventStatus.REJECTED, EventStatus.ACCEPTED), post(listOf(invalid, valid)).results.map { it.status })
+        assertNull(impressions.findByEventId(invalid.eventId))
+        assertNotNull(impressions.findByEventId(valid.eventId))
+    }
+
     @Test
     fun `all SDK routes require a valid header key and support overlapping rotation keys`() {
         listOf("/v1/config", "/v1/assign?userId=u&experimentKey=checkout", "/v1/assignments?userId=u&experimentKey=checkout",

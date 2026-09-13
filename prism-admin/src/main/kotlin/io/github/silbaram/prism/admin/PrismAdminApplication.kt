@@ -3,7 +3,7 @@ package io.github.silbaram.prism.admin
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
-@SpringBootApplication(scanBasePackages = ["io.github.silbaram.prism"])
+@SpringBootApplication(scanBasePackages = ["io.github.silbaram.prism.admin", "io.github.silbaram.prism.infrastructure"])
 class PrismAdminApplication
 
 fun main(args: Array<String>) {

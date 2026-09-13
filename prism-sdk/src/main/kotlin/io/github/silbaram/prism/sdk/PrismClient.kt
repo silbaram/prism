@@ -13,6 +13,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.nio.charset.StandardCharsets
 import java.time.Duration
+import io.github.silbaram.prism.common.rest.dto.event.ExposureAnalysisContext
 
 /** Local evaluation by default. REMOTE retains the legacy synchronous HTTP contract. Close on shutdown. */
 class PrismClient @JvmOverloads constructor(
@@ -34,9 +35,9 @@ class PrismClient @JvmOverloads constructor(
 
     /** Local: evaluate and enqueue exposure. Remote: synchronously persist exposure. */
     @JvmOverloads
-    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any> = emptyMap()): AssignmentResponse =
-        local?.assign(userId, experimentKey, attributes)
-            ?: if (attributes.isEmpty()) fetchAssignment("assign", userId, experimentKey)
+    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any> = emptyMap(), analysis: ExposureAnalysisContext? = null): AssignmentResponse =
+        local?.assign(userId, experimentKey, attributes, analysis)
+            ?: if (attributes.isEmpty() && analysis == null) fetchAssignment("assign", userId, experimentKey)
             else errorResponse(userId, experimentKey, "Attributes require local evaluation")
 
     /** Pure local evaluation. Call recordExposure only when the experience is actually shown. */
@@ -45,7 +46,8 @@ class PrismClient @JvmOverloads constructor(
         local?.evaluate(userId, experimentKey, attributes)
             ?: errorResponse(userId, experimentKey, "Pure evaluation requires local mode")
 
-    fun recordExposure(assignment: AssignmentResponse): Boolean = local?.recordExposure(assignment) ?: false
+    @JvmOverloads
+    fun recordExposure(assignment: AssignmentResponse, analysis: ExposureAnalysisContext? = null): Boolean = local?.recordExposure(assignment, analysis) ?: false
     fun refreshConfig(): Boolean = local?.refreshConfig() ?: false
     fun isInHoldout(userId: String): Boolean? = local?.isInHoldout(userId)
     fun recordPopulationExposure(userId: String): Boolean = local?.recordPopulationExposure(userId) ?: false

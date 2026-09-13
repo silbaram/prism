@@ -37,6 +37,8 @@ class KafkaPipelineIntegrationTest {
     @Autowired lateinit var impressions: ImpressionLogRepository
     @Autowired lateinit var conversions: ConversionLogRepository
     @Autowired lateinit var inbox: PipelineInboxRepository
+    @Autowired lateinit var analysisPlans: AnalysisPlanRepository
+    @Autowired lateinit var analysisObservations: AnalysisObservationRepository
     @Autowired lateinit var policies: PopulationPolicyRepository
     @Autowired lateinit var populationExposures: PopulationExposureRepository
     @Autowired lateinit var populationConversions: PopulationConversionRepository
@@ -61,9 +63,13 @@ class KafkaPipelineIntegrationTest {
             addVariant(VariantEntity(name = "A", weight = 100))
         })
         policies.save(PopulationPolicyEntity(holdoutBasisPoints = 0))
-        val exposure = ClientEvent(UUID.randomUUID().toString(), "exposure", "u", "checkout", "A", Instant.now().toString(), "b".repeat(64))
-        val conversion = exposure.copy(eventId = UUID.randomUUID().toString(), type = "conversion", eventName = "purchase", exposureEventId = exposure.eventId)
-        val cohort = exposure.copy(eventId = UUID.randomUUID().toString(), type = "population_exposure", experimentKey = "global-v1", variant = "ELIGIBLE")
+        analysisPlans.save(AnalysisPlanEntity(experiments.findByKey("checkout")!!.id!!, "A", 1, 1,
+            segmentsJson = "{\"device\":[\"mobile\"]}", cupedEnabled = true,
+            baselineCutoff = LocalDateTime.now(ZoneOffset.UTC).minusHours(2), createdAt = LocalDateTime.now(ZoneOffset.UTC).minusHours(1)))
+        val exposure = ClientEvent(UUID.randomUUID().toString(), "exposure", "u", "checkout", "A", Instant.now().toString(), "b".repeat(64),
+            analysis = ExposureAnalysisContext(mapOf("device" to "mobile"), 7.0, Instant.now().minusSeconds(10800).toString()))
+        val conversion = exposure.copy(eventId = UUID.randomUUID().toString(), type = "conversion", eventName = "purchase", exposureEventId = exposure.eventId, analysis = null)
+        val cohort = exposure.copy(eventId = UUID.randomUUID().toString(), type = "population_exposure", experimentKey = "global-v1", variant = "ELIGIBLE", analysis = null)
         val cohortConversion = cohort.copy(eventId = UUID.randomUUID().toString(), type = "population_conversion", eventName = "purchase", exposureEventId = cohort.eventId)
         HttpClient.newHttpClient().use { http ->
             fun send(events: List<ClientEvent>): EventsResponse {
@@ -84,6 +90,10 @@ class KafkaPipelineIntegrationTest {
             await { inbox.count() == 4L && inbox.findAll().all { it.status == "DONE" } }
             assertEquals(1, impressions.count())
             assertEquals(1, populationExposures.count())
+            assertEquals(exposure, mapper.readValue<ClientEvent>(inbox.findAll().single { it.eventId == exposure.eventId }.payload))
+            assertEquals(7.0, analysisObservations.findAll().single().baselineValue,
+                "cutoff=${analysisPlans.findAll().single().baselineCutoff}, measured=${exposure.analysis!!.baselineMeasuredAt}, exposed=${analysisObservations.findAll().single().exposedAt}")
+            assertEquals("{\"device\":\"mobile\"}", analysisObservations.findAll().single().segmentsJson)
             KafkaConsumer<String, String>(mapOf("bootstrap.servers" to System.getenv("PRISM_TEST_KAFKA_BOOTSTRAP"),
                 "group.id" to "$prefix-verifier", "auto.offset.reset" to "earliest", "enable.auto.commit" to "false",
                 "key.deserializer" to StringDeserializer::class.java.name, "value.deserializer" to StringDeserializer::class.java.name)).use { consumer ->
@@ -105,6 +115,18 @@ class KafkaPipelineIntegrationTest {
                 producer.send(ProducerRecord("$prefix-events", 0, "next", mapper.writeValueAsString(afterTombstone))).get(5, TimeUnit.SECONDS)
             }
             await { impressions.findByEventId(afterTombstone.eventId) != null }
+            // Optional JSON members must work with HTTP Jackson 3 as well as Kafka Jackson 2.
+            val baselineOnly = exposure.copy(eventId = UUID.randomUUID().toString(), userId = "baseline-only",
+                analysis = exposure.analysis!!.copy(segments = emptyMap(), baselineValue = 0.0))
+            val json = mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(EventsRequest(listOf(baselineOnly)))
+            (json["events"][0]["analysis"] as com.fasterxml.jackson.databind.node.ObjectNode).remove("segments")
+            val baselineResponse = http.send(HttpRequest.newBuilder(URI.create("http://localhost:${environment.getProperty("local.server.port")}/v1/events"))
+                .header("X-Prism-Api-Key", "prism-test-api-key-0123456789abcdef").header("Content-Type", "application/json")
+                .timeout(Duration.ofSeconds(12)).POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(json))).build(), HttpResponse.BodyHandlers.ofString())
+            assertEquals(200, baselineResponse.statusCode(), baselineResponse.body())
+            assertEquals(EventStatus.QUEUED, mapper.readValue<EventsResponse>(baselineResponse.body()).results.single().status)
+            await { analysisObservations.findAll().any { it.userId == "baseline-only" } }
+            assertEquals(0.0, analysisObservations.findAll().single { it.userId == "baseline-only" }.baselineValue)
         }
     }
 }

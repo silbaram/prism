@@ -10,7 +10,9 @@ data class ClientEvent(
     val timestamp: String,
     val configVersion: String,
     val eventName: String? = null,
-    val exposureEventId: String? = null
+    val exposureEventId: String? = null,
+    @get:com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    val analysis: ExposureAnalysisContext? = null
 )
 
 data class EventsRequest(val events: List<ClientEvent>)

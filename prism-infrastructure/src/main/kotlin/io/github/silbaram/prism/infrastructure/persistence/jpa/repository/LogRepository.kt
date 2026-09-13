@@ -35,6 +35,11 @@ private const val ELIGIBLE_CONVERSION = """
 
 @Repository
 interface ConversionLogRepository : JpaRepository<ConversionLogEntity, Long> {
+    @Query("SELECT COUNT(c) FROM ConversionLogEntity c WHERE " + ELIGIBLE_CONVERSION +
+        " AND c.userId = :userId AND c.variant = :variant AND c.eventName = :eventName AND c.timestamp >= :start AND c.timestamp < :end")
+    fun countWindowConversions(experimentKey: String, userId: String, variant: String, eventName: String,
+        start: java.time.LocalDateTime, end: java.time.LocalDateTime): Long
+
     @Query("SELECT c.variant, COUNT(DISTINCT c.userId) FROM ConversionLogEntity c WHERE " +
         ELIGIBLE_CONVERSION + " AND c.eventName = :eventName GROUP BY c.variant")
     fun countConversionsByVariant(experimentKey: String, eventName: String): List<Array<Any>>

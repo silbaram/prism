@@ -19,6 +19,7 @@ import org.springframework.jdbc.datasource.init.ScriptUtils
 import java.sql.Connection
 import java.sql.DriverManager
 import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.time.Instant
 import java.util.UUID
 import java.util.TimeZone
@@ -66,6 +67,7 @@ class MySqlMetricIntegrityTest {
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/030_experiment_reliability.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/031_experiment_operations.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/032_experiment_scale.sql"))
+                        ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/033_advanced_analysis.sql"))
                         assertEquals(1L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft'"))
                         assertEquals(0L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft '"))
                         assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM experiments WHERE experiment_key IN ('paused', 'ended') AND configuration_locked = TRUE"))
@@ -188,6 +190,7 @@ class MySqlMetricIntegrityTest {
                     assertEquals(setOf("A", "a", "A "), impressions.countImpressionsByVariant("checkout").map { it[0] }.toSet())
                     val goals = conversions.countConversionsByVariant("checkout", "purchase").associate { it[0] to it[1] }
                     assertEquals(mapOf("A" to 3L, "a" to 1L, "A " to 1L), goals)
+                    verifyAdvancedAnalysis(context)
                     verifyScale(context)
                     verifyEventIngestion(context.getBean(EventIngestionService::class.java), impressions, conversions)
                     verifyOccurrenceOrder(context.getBean(EventIngestionService::class.java), lookup, impressions,
@@ -197,6 +200,90 @@ class MySqlMetricIntegrityTest {
                 admin.createStatement().use { it.execute("DROP DATABASE $database") }
             }
         }
+    }
+
+    private fun verifyAdvancedAnalysis(context: org.springframework.context.ConfigurableApplicationContext) {
+        val experiments = context.getBean(ExperimentRepository::class.java)
+        val plans = context.getBean(AnalysisPlanRepository::class.java)
+        val observations = context.getBean(AnalysisObservationRepository::class.java)
+        val ingestion = context.getBean(EventIngestionService::class.java)
+        val experiment = experiments.saveAndFlush(ExperimentEntity(key = "native-analysis", description = "", goalEventName = "purchase",
+            status = ExperimentStatus.ACTIVE, configurationLocked = true).apply {
+            addVariant(VariantEntity(name = "A", weight = 50)); addVariant(VariantEntity(name = "B", weight = 50))
+        })
+        val before = LocalDateTime.of(2026, 9, 12, 0, 0)
+        plans.saveAndFlush(AnalysisPlanEntity(experiment.id!!, "A", 1, 1, "{\"device\":[\"Mobile\",\"mobile\"]}", true, before, before))
+        for (user in listOf("Case", "case", "Case ")) {
+            val exposure = ClientEvent(UUID.randomUUID().toString(), "exposure", user, "native-analysis", "A",
+                "2026-09-13T00:00:00.123456Z", "a".repeat(64), analysis = ExposureAnalysisContext(mapOf("device" to "Mobile"),
+                    0.0, "2026-09-11T00:00:00Z"))
+            assertEquals(EventStatus.ACCEPTED, ingestion.ingest(listOf(exposure)).results.single().status)
+            assertEquals(EventStatus.DUPLICATE, ingestion.ingest(listOf(exposure)).results.single().status)
+            val row = observations.findAll().single { it.userId == user }
+            assertEquals(0.0, row.baselineValue)
+            assertEquals(123456000, row.exposedAt.nano)
+            assertEquals(2, row.maturesAt.hour)
+            row.converted = false; row.finalizedAt = row.maturesAt
+            observations.saveAndFlush(row)
+            val late = exposure.copy(eventId = UUID.randomUUID().toString(), type = "conversion", analysis = null,
+                timestamp = "2026-09-13T00:00:01.123456Z", eventName = "purchase", exposureEventId = exposure.eventId)
+            assertEquals(EventStatus.ACCEPTED, ingestion.ingest(listOf(late)).results.single().status)
+            assertEquals("LATE_CONVERSION_AFTER_FINALIZATION", observations.findById(row.id).orElseThrow().invalidReason)
+            val outcomes = context.getBean(ConversionLogRepository::class.java)
+            assertEquals(1, outcomes.countWindowConversions("native-analysis", user, "A", "purchase", row.exposedAt, row.outcomeEndsAt))
+            assertEquals(0, outcomes.countWindowConversions("native-analysis", user, "A", "purchase", row.exposedAt, row.exposedAt.plusSeconds(1)))
+        }
+        assertEquals(3, observations.count())
+        context.getBean(javax.sql.DataSource::class.java).connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT UNIX_TIMESTAMP(exposed_at) * 1000000 FROM analysis_observations LIMIT 1").use {
+                    assertTrue(it.next())
+                    val instant = Instant.parse("2026-09-13T00:00:00.123456Z")
+                    assertEquals(instant.epochSecond * 1_000_000 + instant.nano / 1000, it.getLong(1))
+                }
+            }
+        }
+        // JDBC precision and server TIMESTAMP(6) rounding must agree with late-event guards.
+        val precise = ClientEvent(UUID.randomUUID().toString(), "exposure", "precision", "native-analysis", "A",
+            "2026-09-13T00:00:00.123456789Z", "a".repeat(64))
+        assertEquals(EventStatus.ACCEPTED, ingestion.ingest(listOf(precise)).results.single().status)
+        val precisionRow = observations.findAll().single { it.userId == "precision" }
+        val persisted = context.getBean(ImpressionLogRepository::class.java).findByEventId(precise.eventId)!!
+        assertEquals(persisted.timestamp, precisionRow.exposedAt)
+        precisionRow.converted = false; precisionRow.finalizedAt = precisionRow.maturesAt
+        observations.saveAndFlush(precisionRow)
+        assertEquals(EventStatus.ACCEPTED, ingestion.ingest(listOf(precise.copy(eventId = UUID.randomUUID().toString()))).results.single().status)
+        assertNull(observations.findById(precisionRow.id).orElseThrow().invalidReason)
+        val edge = precise.copy(eventId = UUID.randomUUID().toString(), type = "conversion", eventName = "purchase",
+            exposureEventId = precise.eventId, timestamp = precisionRow.outcomeEndsAt.toInstant(ZoneOffset.UTC).minusNanos(1).toString())
+        assertEquals(EventStatus.ACCEPTED, ingestion.ingest(listOf(edge)).results.single().status)
+        val inWindow = context.getBean(ConversionLogRepository::class.java).countWindowConversions("native-analysis", "precision", "A", "purchase",
+            precisionRow.exposedAt, precisionRow.outcomeEndsAt)
+        assertEquals(if (inWindow > 0) "LATE_CONVERSION_AFTER_FINALIZATION" else null, observations.findById(precisionRow.id).orElseThrow().invalidReason)
+
+        val dataSource = context.getBean(javax.sql.DataSource::class.java) as com.zaxxer.hikari.HikariDataSource
+        val previousMaximum = dataSource.maximumPoolSize
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            dataSource.maximumPoolSize = 4
+            val first = precise.copy(eventId = UUID.randomUUID().toString(), userId = "concurrent-analysis",
+                timestamp = "2026-09-13T00:00:00Z", analysis = ExposureAnalysisContext(mapOf("device" to "Mobile")))
+            val second = first.copy(eventId = UUID.randomUUID().toString(), timestamp = "2026-09-13T00:00:01Z",
+                analysis = ExposureAnalysisContext(mapOf("device" to "mobile")))
+            val gate = CountDownLatch(2)
+            val results = listOf(first, second).map { event -> pool.submit<Pair<ClientEvent, EventStatus>> {
+                gate.countDown(); check(gate.await(10, TimeUnit.SECONDS))
+                event to ingestion.ingest(listOf(event)).results.single().status
+            } }.map { it.get(15, TimeUnit.SECONDS) }
+            results.forEach { (event, status) ->
+                assertTrue(status in setOf(EventStatus.ACCEPTED, EventStatus.RETRY))
+                assertTrue(ingestion.ingest(listOf(event)).results.single().status in setOf(EventStatus.ACCEPTED, EventStatus.DUPLICATE))
+            }
+            val concurrent = observations.findAll().single { it.userId == "concurrent-analysis" }
+            assertEquals(LocalDateTime.of(2026, 9, 13, 0, 0), concurrent.exposedAt)
+            assertEquals("{\"device\":\"Mobile\"}", concurrent.segmentsJson)
+            assertNull(concurrent.invalidReason)
+        } finally { pool.shutdownNow(); dataSource.maximumPoolSize = previousMaximum }
     }
 
     private fun verifyScale(context: org.springframework.context.ConfigurableApplicationContext) {
@@ -344,6 +431,7 @@ class MySqlMetricIntegrityTest {
             "log_conversion" to setOf("experiment_key", "variant", "user_id", "event_name", "event_id"),
             "event_receipts" to setOf("event_id", "payload_hash", "config_version"),
             "experiment_changes" to setOf("experiment_key"), "experiment_guardrails" to setOf("event_name"),
+            "analysis_plans" to setOf("control_variant"), "analysis_observations" to setOf("id", "user_id", "variant"),
             "population_policy" to setOf("holdout_key"), "experiment_layers" to setOf("layer_key"),
             "sticky_assignments" to setOf("id", "experiment_key", "user_id", "variant"),
             "pipeline_inbox" to setOf("id", "event_id"), "pipeline_outbox" to setOf("id"),

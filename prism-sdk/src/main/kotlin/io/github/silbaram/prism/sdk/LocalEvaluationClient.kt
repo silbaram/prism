@@ -140,14 +140,14 @@ internal class LocalEvaluationClient(
         return AssignmentResponse(userId, experimentKey, variant?.name, code.code, code.message, state.version)
     }
 
-    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any>): AssignmentResponse {
+    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any>, analysis: ExposureAnalysisContext? = null): AssignmentResponse {
         val result = evaluate(userId, experimentKey, attributes)
         if (result.variant == null) return result
-        val exposure = enqueueExposure(result) ?: return failed(userId, experimentKey)
+        val exposure = enqueueExposure(result, analysis) ?: return failed(userId, experimentKey)
         return result.copy(configVersion = exposure.configVersion, exposureEventId = exposure.eventId)
     }
 
-    fun recordExposure(result: AssignmentResponse): Boolean = enqueueExposure(result) != null
+    fun recordExposure(result: AssignmentResponse, analysis: ExposureAnalysisContext? = null): Boolean = enqueueExposure(result, analysis) != null
 
     /** null means no validated configuration is available; never guess the comparison cohort. */
     fun isInHoldout(userId: String): Boolean? = if (closed.get() || !validIdentity(userId)) null else snapshot.get()?.takeIf { it.holdoutConfigured }?.holdout?.excludes(userId)
@@ -180,13 +180,14 @@ internal class LocalEvaluationClient(
         return queued
     }
 
-    private fun enqueueExposure(result: AssignmentResponse): ClientEvent? {
+    private fun enqueueExposure(result: AssignmentResponse, analysis: ExposureAnalysisContext? = null): ClientEvent? {
+        try { analysis?.validate() } catch (_: IllegalArgumentException) { return null }
         val variant = result.variant ?: return null
         val version = result.configVersion ?: return null
         if (result.resultCode != ResponseCode.SUCCESS.code || !version.matches(Regex("[0-9a-f]{64}")) ||
             !validIdentity(result.userId) || !validIdentity(result.experimentKey) || !validIdentity(variant)) return null
         val event = ClientEvent(UUID.randomUUID().toString(), "exposure", result.userId, result.experimentKey,
-            variant, Instant.now().toString(), version)
+            variant, Instant.now().toString(), version, analysis = analysis?.copy(segments = analysis.segments.toMap()))
         synchronized(queue) {
             if (closed.get()) return null
             val key = Key(result.userId, result.experimentKey)

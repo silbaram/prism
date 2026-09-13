@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div>
+    <div class="d-flex justify-content-between mb-3"><h2>고급 분석 — <span th:text="${experiment.key}"></span></h2>
+        <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}(id=${experiment.id})}">실험 상세</a></div>
+    <div th:if="${report.plan == null}" class="card p-4">
+        <h3>분석 계획</h3>
+        <p>첫 노출부터 동일한 기간 동안 전환을 관측합니다. 계획을 고정하면 실험 정의도 잠기므로 변형·목표·기간을 먼저 설정하세요.</p>
+        <p th:if="${locked}">이미 시작·예약·노출된 실험에는 소급 적용할 수 없습니다. 새 실험에서 계획을 설정하세요.</p>
+        <form th:if="${canManageExperiments and !locked}" th:action="@{/admin/experiments/{id}/analysis/plan(id=${experiment.id})}" method="post">
+            <div class="mb-3"><label class="form-label">대조군</label><select name="controlVariant" class="form-select">
+                <option th:each="variant : ${experiment.variants}" th:if="${variant.weight > 0}" th:value="${variant.name}" th:text="${variant.name}"></option></select></div>
+            <div class="row mb-3"><div class="col"><label>전환 관측 기간 (시간)</label><input class="form-control" name="outcomeHours" type="number" min="1" max="720" value="24" required></div>
+                <div class="col"><label>수집 지연 허용 (시간)</label><input class="form-control" name="latenessHours" type="number" min="0" max="168" value="24" required></div></div>
+            <div class="mb-3"><label class="form-label">세그먼트와 허용 값 (한 줄에 하나, 최대 5개)</label>
+                <textarea class="form-control" name="segments" rows="3" placeholder="user_type=new,returning&#10;device=mobile,desktop"></textarea>
+                <div class="form-text">사용자가 실험에 노출되기 전에 정해진 속성만 사용하세요. 누락·미등록 값은 별도 집단으로 표시합니다.</div></div>
+            <div class="mb-3"><label><input type="checkbox" name="cupedEnabled" value="true"> CUPED 사용</label>
+                <div class="form-text">모든 사용자에게 동일한 사전 지표를 수집해야 합니다. 지표가 없는 사용자의 값을 임의로 0으로 채우지 마세요.</div></div>
+            <div class="mb-3"><label>사전 지표 이름과 관측 구간</label><input class="form-control" name="baselineMetric" maxlength="255" placeholder="예: 마감 전 7일간 구매 횟수"></div>
+            <div class="mb-3"><label>사전 데이터 마감 시각 (UTC, CUPED 사용 시 필수)</label>
+                <input class="form-control" name="baselineCutoff" type="datetime-local" step="1"></div>
+            <button type="submit" class="btn btn-primary">분석 계획과 실험 정의 고정</button>
+        </form>
+    </div>
+    <th:block th:if="${report.plan != null}">
+        <div class="card p-3 mb-3">
+            <p>대조군: <strong th:text="${report.plan.controlVariant}"></strong> · 목표: <strong th:text="${experiment.goalEventName}"></strong></p>
+            <p class="mb-0">첫 노출 이후 <span th:text="${report.plan.outcomeHours}"></span>시간 관측 + <span th:text="${report.plan.latenessHours}"></span>시간 수집 대기.
+                미확정 <strong th:text="${report.pendingUsers}"></strong>명 · 무효 <strong th:text="${report.invalidUsers}"></strong>명</p>
+        </div>
+        <div class="alert" th:classappend="${report.available ? 'alert-info' : 'alert-warning'}" th:text="${report.message}"></div>
+        <h3>관측 완료 사용자</h3>
+        <table class="table"><thead><tr><th>변형</th><th>사용자</th><th>전환 사용자</th><th>전환율</th><th>유효 사전 지표</th></tr></thead>
+            <tbody><tr th:each="group : ${report.groups}"><td th:text="${group.variant}"></td><td th:text="${group.users}"></td><td th:text="${group.conversions}"></td>
+                <td th:text="${group.rate == null ? '—' : #numbers.formatDecimal(group.rate * 100, 1, 3) + '%'}"></td><td th:text="${group.baselineUsers}"></td></tr></tbody></table>
+        <h3>Sequential testing</h3>
+        <p>반복 조회를 고려한 95% 동시 신뢰구간입니다. 모든 변형과 관측 횟수를 보정하므로 구간이 보수적으로 넓습니다.
+            사용자 간 독립성 및 시간에 걸쳐 안정적인 전환율을 가정합니다. 자동 승자는 선택하지 않습니다.</p>
+        <table class="table"><thead><tr><th>대조군 대비 변형</th><th>전환율 차이 (pp)</th><th>반복 관측 보정 구간 (pp)</th></tr></thead>
+            <tbody><tr th:each="comparison : ${report.comparisons}"><td th:text="${comparison.variant}"></td>
+                <td th:text="${comparison.difference == null ? '—' : #numbers.formatDecimal(comparison.difference * 100, 1, 3)}"></td>
+                <td th:text="${comparison.sequential == null ? '분석 불가' : #numbers.formatDecimal(comparison.sequential.lower * 100, 1, 3) + ' ~ ' + #numbers.formatDecimal(comparison.sequential.upper * 100, 1, 3)}"></td></tr></tbody></table>
+        <h3>Bayesian 분석</h3>
+        <p>각 변형에 독립적인 Beta(1,1) 사전분포를 사용합니다. 대조군보다 높을 사후확률은 반복 검정의 위양성률 보장이 아닙니다.
+            32,768회 재현 가능한 표본 추출을 사용하며 확률의 최대 Monte Carlo 표준오차는 약 0.28pp입니다.</p>
+        <table class="table"><thead><tr><th>변형</th><th>대조군보다 높을 확률</th><th>사후 평균 차이 (pp)</th><th>차이의 95% 사후 구간 (pp)</th><th>선택 시 기대 손실 (pp)</th></tr></thead>
+            <tbody><tr th:each="comparison : ${report.comparisons}"><td th:text="${comparison.variant}"></td>
+                <th:block th:if="${comparison.bayesian != null}">
+                    <td th:text="${#numbers.formatDecimal(comparison.bayesian.probabilityBetter * 100, 1, 2) + '%'}"></td>
+                    <td th:text="${#numbers.formatDecimal(comparison.bayesian.meanDifference * 100, 1, 3)}"></td>
+                    <td th:text="${#numbers.formatDecimal(comparison.bayesian.interval.lower * 100, 1, 3) + ' ~ ' + #numbers.formatDecimal(comparison.bayesian.interval.upper * 100, 1, 3)}"></td>
+                    <td th:text="${#numbers.formatDecimal(comparison.bayesian.expectedLoss * 100, 1, 3)}"></td>
+                </th:block><td th:if="${comparison.bayesian == null}" colspan="4">분석 불가 또는 표본 없음</td></tr></tbody></table>
+        <h3>CUPED</h3>
+        <p th:if="${!report.plan.cupedEnabled}">이 실험은 CUPED를 사용하지 않습니다.</p>
+        <th:block th:if="${report.plan.cupedEnabled}">
+            <p>사전 지표: <strong th:text="${report.plan.baselineMetric}"></strong>. 사전 데이터 마감: <span th:text="${report.plan.baselineCutoff}"></span> UTC. 보정 효과·근사 표준오차와 분산 감소를 진단합니다.
+                보정 후 값은 전환율 자체가 아니며 순차 검정의 유의성 판정을 대체하지 않습니다.</p>
+            <div th:each="comparison : ${report.comparisons}" class="card p-3 mb-2"><h4 th:text="${comparison.variant}"></h4>
+                <p th:if="${comparison.cuped == null}">데이터 검사를 통과한 경우에 분석합니다.</p>
+                <th:block th:if="${comparison.cuped != null}"><p th:text="${comparison.cuped.message}"></p>
+                    <p th:if="${comparison.cuped.available}" class="mb-0">보정 차이: <strong th:text="${#numbers.formatDecimal(comparison.cuped.adjustedDifference * 100, 1, 3)}"></strong>pp ·
+                        표준오차: <span th:text="${#numbers.formatDecimal(comparison.cuped.rawStandardError * 100, 1, 3)}"></span> → <span th:text="${#numbers.formatDecimal(comparison.cuped.adjustedStandardError * 100, 1, 3)}"></span>pp ·
+                        분산 감소: <span th:text="${comparison.cuped.varianceReduction == null ? '—' : #numbers.formatDecimal(comparison.cuped.varianceReduction * 100, 1, 2) + '%'}"></span></p>
+                </th:block></div>
+        </th:block>
+        <h3>세그먼트별 분석</h3>
+        <p>최초 노출 때 수집한 사전 속성으로 나눈 기술 통계입니다. 집단별 차이는 탐색용이며 유의성·인과 효과를 선언하지 않습니다.</p>
+        <table class="table"><thead><tr><th>속성</th><th>집단</th><th>변형</th><th>사용자</th><th>전환 사용자</th><th>전환율</th><th>집단 내 대조군 대비 (pp)</th></tr></thead>
+            <tbody><tr th:each="segment : ${report.segments}"><td th:text="${segment.key}"></td><td th:text="${segment.value == null ? '(미수집·미등록)' : segment.value}"></td>
+                <td th:text="${segment.group.variant}"></td><td th:text="${segment.group.users}"></td><td th:text="${segment.group.conversions}"></td>
+                <td th:text="${segment.group.rate == null ? '—' : #numbers.formatDecimal(segment.group.rate * 100, 1, 3) + '%'}"></td>
+                <td th:text="${segment.difference == null ? '—' : #numbers.formatDecimal(segment.difference * 100, 1, 3)}"></td></tr></tbody></table>
+    </th:block>
+</div>
+</th:block>
+</html>

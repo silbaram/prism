@@ -16,7 +16,7 @@
                   th:attr="data-locked=${locked}">
 
                 <div th:if="${locked}" class="alert alert-info">
-                    시작한 실험의 설정은 잠겨 있습니다. 설명·진행 상태 변경과 참여 비율 확대가 가능하며, 다른 설정은 새 실험으로 만드세요.
+                    실험 설정은 잠겨 있습니다. 설명·진행 상태 변경과 참여 비율 확대가 가능하며, 다른 설정은 새 실험으로 만드세요.
                     <a th:if="${formErrors != null}" th:href="@{/admin/experiments/{id}/edit(id=${experiment.id})}">저장된 최신 설정 다시 불러오기</a>
                 </div>
 
@@ -92,7 +92,7 @@
                     <select name="status" class="form-select" th:if="${experiment.id != null}">
                         <option th:if="${!#lists.contains({'DRAFT', 'SCHEDULED', 'ACTIVE', 'PAUSED', 'ENDED'}, experiment.selectedStatus)}"
                                 th:value="${experiment.selectedStatus}" th:text="${experiment.selectedStatus + ' (잘못된 상태)'}" selected></option>
-                        <option value="DRAFT" th:disabled="${locked}" th:selected="${experiment.selectedStatus == 'DRAFT'}">DRAFT (작성중)</option>
+                        <option value="DRAFT" th:disabled="${locked and experiment.status.name() != 'DRAFT'}" th:selected="${experiment.selectedStatus == 'DRAFT'}">DRAFT (작성중)</option>
                         <option value="SCHEDULED" th:disabled="${experiment.status.name() == 'ENDED'}" th:selected="${experiment.selectedStatus == 'SCHEDULED'}">SCHEDULED (예약)</option>
                         <option value="ACTIVE" th:disabled="${experiment.status.name() == 'ENDED'}" th:selected="${experiment.selectedStatus == 'ACTIVE'}">ACTIVE (진행중)</option>
                         <option value="PAUSED" th:disabled="${experiment.status.name() == 'ENDED'}" th:selected="${experiment.selectedStatus == 'PAUSED'}">PAUSED (일시중지)</option>

@@ -97,6 +97,36 @@ class LocalEvaluationClientTest {
     }
 
     @Test
+    fun `analysis metadata is explicit frozen with first exposure and absent from conversions`() {
+        create()
+        val segments = mutableMapOf("device" to "mobile")
+        val context = ExposureAnalysisContext(segments, 42.0, "2026-09-01T00:00:00Z")
+        val attributes = mapOf("age" to 25, "country" to "KR", "privateAttribute" to "not-transmitted")
+        val first = client.assign("u", "checkout", attributes, context)
+        assertNotNull(first.exposureEventId)
+        segments["device"] = "desktop"
+        val repeated = client.assign("u", "checkout", attributes, context.copy(baselineValue = 999.0))
+        assertEquals(first.exposureEventId, repeated.exposureEventId)
+        assertTrue(client.trackConversion(first, "purchase"))
+        assertTrue(client.flush())
+        val events = eventRequests.single().events
+        assertEquals(ExposureAnalysisContext(mapOf("device" to "mobile"), 42.0, "2026-09-01T00:00:00Z"), events.first().analysis)
+        assertNull(events.last().analysis)
+        assertFalse(mapper.writeValueAsString(events).contains("privateAttribute"))
+        assertNull(client.assign("invalid", "checkout", attributes, context.copy(baselineValue = Double.NaN)).variant)
+        assertNull(client.assign("invalid-time", "checkout", attributes,
+            context.copy(baselineMeasuredAt = "+1000000000-01-01T00:00:00Z")).variant)
+    }
+
+    @Test
+    fun `events without analysis metadata preserve the pre-upgrade canonical payload`() {
+        val event = ClientEvent("10000000-0000-0000-0000-000000000001", "exposure", "u", "checkout", "A",
+            "2026-09-13T00:00:00Z", "a".repeat(64))
+        val legacy = """{"eventId":"10000000-0000-0000-0000-000000000001","type":"exposure","userId":"u","experimentKey":"checkout","variant":"A","timestamp":"2026-09-13T00:00:00Z","configVersion":"${"a".repeat(64)}","eventName":null,"exposureEventId":null}"""
+        assertEquals(legacy, mapper.writeValueAsString(event))
+    }
+
+    @Test
     fun `queued exposure remains available before asynchronous materialization despite expired lookup cache`() {
         queueEvents.set(true)
         create()

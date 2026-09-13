@@ -135,7 +135,7 @@ class ExperimentService(
     fun deleteExperiment(id: Long) {
         population.lock()
         val experiment = findForUpdate(id)
-        require(!isLocked(experiment)) { "시작했거나 노출이 있는 실험은 삭제할 수 없습니다. 종료 상태로 보존하세요." }
+        require(!isLocked(experiment)) { "설정이 잠긴 실험은 삭제할 수 없습니다. 종료 상태로 보존하세요." }
         changeRepository.save(ExperimentChangeEntity(experimentId = id, experimentKey = experiment.key,
             action = "DELETE", beforeSnapshot = snapshot(experiment), afterSnapshot = null, actor = currentActor()))
         experimentRepository.delete(experiment)
@@ -209,7 +209,10 @@ class ExperimentService(
         require(experiment.status != ExperimentStatus.ENDED || target == ExperimentStatus.ENDED) {
             "종료한 실험은 재시작할 수 없습니다. 새 실험을 생성하세요."
         }
-        require(target != ExperimentStatus.DRAFT || !isLocked(experiment)) {
+        // A predeclared analysis plan locks the design while it is still an unexposed DRAFT.
+        // Remaining in DRAFT for a description edit is distinct from returning after a start.
+        require(target != ExperimentStatus.DRAFT || (experiment.status == ExperimentStatus.DRAFT &&
+            !impressionRepository.existsByExperimentKey(experiment.key))) {
             "시작했거나 노출이 있는 실험은 DRAFT로 되돌릴 수 없습니다."
         }
     }

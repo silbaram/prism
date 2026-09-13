@@ -28,7 +28,8 @@ class EventIngestionService(
     private val pipeline: io.github.silbaram.prism.api.pipeline.PipelineProperties,
     private val populationExposures: PopulationExposureRepository,
     private val populationConversions: PopulationConversionRepository,
-    private val policies: PopulationPolicyRepository
+    private val policies: PopulationPolicyRepository,
+    private val analysis: io.github.silbaram.prism.infrastructure.analysis.AnalysisRecorder
 ) {
     private val transaction = TransactionTemplate(transactionManager).apply {
         propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
@@ -61,8 +62,10 @@ class EventIngestionService(
                 } else if (event.type == "exposure") {
                     require(experiments.findByKey(event.experimentKey) != null) { "Unknown experiment" }
                     // Buffered events may use a previous config: never reassign against today's weights/status.
-                    impressions.saveAndFlush(ImpressionLogEntity(experimentKey = event.experimentKey,
+                    val recorded = impressions.saveAndFlush(ImpressionLogEntity(experimentKey = event.experimentKey,
                         variant = event.variant, userId = event.userId, timestamp = time, eventId = event.eventId))
+                    analysis.exposure(recorded, event.analysis?.segments.orEmpty(), event.analysis?.baselineValue,
+                        event.analysis?.baselineMeasuredAt?.let { LocalDateTime.ofInstant(Instant.parse(it), ZoneOffset.UTC) })
                 } else {
                     val exposureId = requireNotNull(event.exposureEventId)
                     val exposure = impressions.findByEventId(exposureId) ?: run {
@@ -74,9 +77,10 @@ class EventIngestionService(
                     require(receipts.findById(requireNotNull(event.exposureEventId)).orElse(null)?.configVersion == event.configVersion) {
                         "Exposure configuration mismatch"
                     }
-                    conversions.saveAndFlush(ConversionLogEntity(experimentKey = event.experimentKey,
+                    val recorded = conversions.saveAndFlush(ConversionLogEntity(experimentKey = event.experimentKey,
                         variant = event.variant, userId = event.userId, eventName = requireNotNull(event.eventName),
                         impressionId = exposure.id, timestamp = time, eventId = event.eventId))
+                    analysis.conversion(recorded)
                 }
                 if (pipeline.mode == io.github.silbaram.prism.api.pipeline.PipelineMode.KAFKA) entityManager.persist(PipelineOutboxEntity(
                     event.eventId, "WAREHOUSE", mapper.writeValueAsString(event)))
@@ -114,6 +118,7 @@ class EventIngestionService(
         require(time >= Instant.ofEpochSecond(1) && time <= Instant.ofEpochSecond(Int.MAX_VALUE.toLong())) {
             "Timestamp outside MySQL TIMESTAMP range"
         }
+        event.analysis?.let { require(event.type == "exposure") { "Analysis context is only allowed on experiment exposures" }; it.validate() }
         if (event.type.endsWith("conversion")) {
             val name = event.eventName
             val exposureId = event.exposureEventId

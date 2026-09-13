@@ -17,7 +17,8 @@ import org.springframework.transaction.annotation.Transactional
 class LogPersistenceAdapter(
     private val impressions: ImpressionLogRepository,
     private val conversions: ConversionLogRepository,
-    private val receipts: EventReceiptRepository
+    private val receipts: EventReceiptRepository,
+    private val analysis: io.github.silbaram.prism.infrastructure.analysis.AnalysisRecorder
 ) : LoadImpressionPort, RecordImpressionPort, RecordConversionPort {
     @Transactional(readOnly = true)
     override fun loadLatestImpression(userId: String, experimentKey: String): Impression? =
@@ -34,11 +35,13 @@ class LogPersistenceAdapter(
 
     // Synchronous persistence: an assignment response is sent only after its exposure commits.
     override fun recordImpression(experimentKey: String, variantName: String, userId: String) {
-        impressions.save(ImpressionLogEntity(experimentKey = experimentKey, variant = variantName, userId = userId))
+        val recorded = impressions.saveAndFlush(ImpressionLogEntity(experimentKey = experimentKey, variant = variantName, userId = userId))
+        analysis.exposure(recorded)
     }
 
     override fun recordConversion(experimentKey: String, userId: String, eventName: String, impression: Impression) {
-        conversions.save(ConversionLogEntity(experimentKey = experimentKey, variant = impression.variantName,
+        val recorded = conversions.saveAndFlush(ConversionLogEntity(experimentKey = experimentKey, variant = impression.variantName,
             userId = userId, eventName = eventName, impressionId = impression.id))
+        analysis.conversion(recorded)
     }
 }

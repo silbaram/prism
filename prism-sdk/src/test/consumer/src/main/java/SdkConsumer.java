@@ -4,6 +4,7 @@ import io.github.silbaram.prism.sdk.PrismClient;
 import io.github.silbaram.prism.sdk.FileStickyAssignmentStore;
 import java.nio.file.Files;
 import io.github.silbaram.prism.sdk.PrismExperimentClient;
+import io.github.silbaram.prism.common.rest.dto.event.ExposureAnalysisContext;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -20,6 +21,7 @@ public class SdkConsumer {
         var exposures = new AtomicInteger();
         var conversions = new AtomicInteger();
         var population = new AtomicInteger();
+        var analysis = new AtomicInteger();
         var apiKey = "consumer-test-api-key-0123456789abcdef";
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/config", exchange -> {
@@ -43,6 +45,7 @@ public class SdkConsumer {
             exposures.addAndGet((int) Pattern.compile("\"type\":\"exposure\"").matcher(payload).results().count());
             conversions.addAndGet((int) Pattern.compile("\"type\":\"conversion\"").matcher(payload).results().count());
             population.addAndGet((int) Pattern.compile("population_(exposure|conversion)").matcher(payload).results().count());
+            if (payload.contains("\"baselineValue\":7.0") && payload.contains("\"device\":\"mobile\"")) analysis.incrementAndGet();
             var results = new StringJoiner(",", "{\"results\":[", "]}");
             var ids = Pattern.compile("\"eventId\":\"([^\"]+)\"").matcher(payload);
             while (ids.find()) {
@@ -53,7 +56,8 @@ public class SdkConsumer {
         server.start();
         try (var transport = new PrismClient("http://127.0.0.1:" + server.getAddress().getPort(), apiKey, Duration.ofSeconds(5))) {
             var client = new PrismExperimentClient(transport);
-            var assignment = client.assign("user-123", "checkout", Map.of("age", 25, "country", "KR"));
+            var assignment = client.assign("user-123", "checkout", Map.of("age", 25, "country", "KR"),
+                new ExposureAnalysisContext(Map.of("device", "mobile"), 7.0, "2026-09-01T00:00:00Z"));
             if (!assignment.getAssigned() || !"A".equals(assignment.getVariant()) || assignment.getExposureEventId() == null) {
                 throw new AssertionError("Published SDK local evaluation failed: " + assignment);
             }
@@ -63,7 +67,7 @@ public class SdkConsumer {
             if (client.assign("too-young", "checkout", Map.of("age", 10, "country", "KR")).getAssigned()) {
                 throw new AssertionError("Targeting was not applied");
             }
-            if (exposures.get() != 1 || conversions.get() != 1) {
+            if (exposures.get() != 1 || conversions.get() != 1 || analysis.get() != 1) {
                 throw new AssertionError("Expected one exposure and one conversion");
             }
             if (client.assign("u", "disabled").getAssigned() || client.assign("u", "expired").getAssigned()) {

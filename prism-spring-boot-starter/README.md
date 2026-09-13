@@ -161,3 +161,7 @@ prism:
 SSE는 정기 폴링을 유지하면서 변경 전파를 빠르게 합니다. 저장소 디렉터리를 생략하면 최초 배정은 메모리에만 유지합니다. 디렉터리는 환경별로 분리하고 영속 볼륨을 사용하세요. 여러 호스트 간 공유는 사용자 정의 `StickyAssignmentStore`를 사용하는 `PrismClient` 빈으로 구성합니다.
 
 레이어와 영구 홀드아웃은 Admin에서 설정합니다. 누적 효과 계측은 `PrismExperimentClient.recordPopulationExposure`/`trackPopulationConversion`으로 명시적으로 실행합니다. [Phase 4 가이드](../docs/issue-28-phase-4.md)를 참고하세요.
+
+## Phase 5 고급 분석
+
+주입된 `PrismExperimentClient`의 `assign(userId, experimentKey, attributes, analysis)`에 `ExposureAnalysisContext`를 전달해 사전 세그먼트와 CUPED 지표를 수집합니다. 어노테이션은 이 정보를 자동 추출하지 않습니다. 실험 시작 전에 Admin에서 분석 계획을 고정해야 하며, 서버 마이그레이션 033과 전체 API/Admin 업그레이드를 먼저 완료하세요. [고급 분석과 계측 가이드](../docs/issue-28-phase-5.md)를 참고하세요.

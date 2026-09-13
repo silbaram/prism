@@ -63,6 +63,7 @@ export PRISM_ADMIN_PASSWORD_HASH
 - 노출 중복 제거·SRM·설정 잠금·통계 검정: [이슈 #28 Phase 2](docs/issue-28-phase-2.md)
 - 참여 비율·기간·인증·가드레일: [이슈 #28 Phase 3](docs/issue-28-phase-3.md)
 - 레이어·홀드아웃·배정 유지·Kafka·SSE: [이슈 #28 Phase 4](docs/issue-28-phase-4.md)
+- 순차 검정·Bayesian·CUPED·세그먼트 분석: [이슈 #28 Phase 5](docs/issue-28-phase-5.md)
 
 ## 전환 지표
 

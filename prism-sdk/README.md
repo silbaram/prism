@@ -126,3 +126,7 @@ Phase 3 서버는 모든 HTTP 경로에 API 키를 요구합니다. `PrismClient
 `recordPopulationExposure(userId)`를 공통 서비스 진입 시 모든 사용자에게 실행하고, 전환 시 `trackPopulationConversion(userId, eventName)`을 호출하면 홀드아웃/실험 참여 가능 집단의 누적 결과를 별도 계측합니다. LOCAL 모드 전용이며 같은 client에서 선행 모집단 노출이 필요합니다. `isInHoldout(userId)`는 정책을 모르면 null을 반환합니다.
 
 Kafka 모드에서 `flush()` 성공은 Kafka 수신 확인(`QUEUED`)까지이며 집계 완료는 비동기입니다. [Phase 4의 배포 순서·저장소 계약·계측 예시](../docs/issue-28-phase-4.md)를 참고하세요.
+
+## Phase 5 고급 분석 계측
+
+LOCAL의 `assign(userId, experimentKey, attributes, analysis)` 또는 `recordExposure(evaluation, analysis)`에 `ExposureAnalysisContext`를 전달하면 최초 노출의 사전 세그먼트와 CUPED 지표를 기록합니다. 기존 호출은 그대로 사용할 수 있습니다. 타기팅 속성은 자동 전송되지 않습니다. 먼저 서버 마이그레이션 033과 API/Admin을 배포하고, 실험 시작 전에 분석 계획을 고정하세요. [계측 예시와 분석 계약](../docs/issue-28-phase-5.md)을 참고하세요.
