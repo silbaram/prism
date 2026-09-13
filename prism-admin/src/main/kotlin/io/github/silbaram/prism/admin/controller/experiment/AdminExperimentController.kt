@@ -121,6 +121,7 @@ class AdminExperimentController(
 
         model.addAttribute("experiment", experiment)
         model.addAttribute("stats", stats)
+        model.addAttribute("changes", experimentService.getChangeHistory(id))
         return "experiment/detail"
     }
 }

@@ -40,7 +40,8 @@ class PrismAutoConfiguration(
                 eventBatchSize = properties.eventBatchSize,
                 eventQueueCapacity = properties.eventQueueCapacity,
                 exposureCacheMaximumSize = properties.exposureCacheMaximumSize,
-                shutdownTimeout = properties.shutdownTimeout
+                shutdownTimeout = properties.shutdownTimeout,
+                exposureDedupCapacity = properties.exposureDedupCapacity
             )
         )
     }

@@ -13,12 +13,14 @@ data class PrismClientOptions @JvmOverloads constructor(
     val eventBatchSize: Int = 100,
     val eventQueueCapacity: Int = 10_000,
     val exposureCacheMaximumSize: Long = 10_000,
-    val shutdownTimeout: Duration = Duration.ofSeconds(5)
+    val shutdownTimeout: Duration = Duration.ofSeconds(5),
+    val exposureDedupCapacity: Int = 100_000
 ) {
     init {
         require(configSyncInterval.toMillis() > 0 && eventFlushInterval.toMillis() > 0)
         require(!initializationTimeout.isNegative && shutdownTimeout.toMillis() > 0)
         require(eventBatchSize in 1..1000 && eventQueueCapacity >= eventBatchSize)
         require(exposureCacheMaximumSize > 0)
+        require(exposureDedupCapacity > 0)
     }
 }

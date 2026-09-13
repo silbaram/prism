@@ -6,9 +6,11 @@ import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.Experi
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import kotlin.math.sqrt
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
+import org.springframework.transaction.annotation.Isolation
 
 @Service
-@Transactional(readOnly = true)
+@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 class AnalyticsService(
     private val impressionRepository: ImpressionLogRepository,
     private val conversionRepository: ConversionLogRepository,
@@ -24,13 +26,19 @@ class AnalyticsService(
                 .associate { (it[0] as String) to (it[1] as Long) }
         }.orEmpty()
         val variants = (experiment.variants.map { it.name } + impressions.keys + conversions.keys).distinct()
-        return ExperimentStats(experimentKey, goal, variants.map { variant ->
+        val stats = variants.map { variant ->
             val exposed = impressions[variant] ?: 0L
             val converted = if (goal == null) null else conversions[variant] ?: 0L
             VariantStats(variant, exposed, converted,
                 if (exposed > 0 && converted != null) converted.toDouble() / exposed * 100 else null,
                 if (exposed > 0 && converted != null) wilsonInterval(converted, exposed) else null)
-        })
+        }
+        val srm = sampleRatioMismatch(experiment.variants.map { it.name to it.weight }, impressions,
+            impressionRepository.countExposedUsers(experimentKey))
+        val participatingVariants = experiment.variants.filter { it.weight > 0 }.map { it.name }.toSet()
+        return ExperimentStats(experimentKey, goal, stats, srm,
+            compareConversionRates(stats.filter { it.variant in participatingVariants }, srm,
+                experiment.status == ExperimentStatus.ENDED))
     }
 
     fun getEventStats(experimentKey: String): List<EventStats> =
@@ -56,7 +64,8 @@ internal fun wilsonInterval(successes: Long, trials: Long): ConfidenceInterval {
         (center + margin).coerceAtMost(1.0) * 100)
 }
 
-data class ExperimentStats(val experimentKey: String, val goalEventName: String?, val stats: List<VariantStats>)
+data class ExperimentStats(val experimentKey: String, val goalEventName: String?, val stats: List<VariantStats>,
+    val srm: SrmResult, val comparison: GroupComparison)
 data class VariantStats(val variant: String, val impressions: Long, val conversions: Long?,
     val cvr: Double?, val confidenceInterval: ConfidenceInterval?)
 data class ConfidenceInterval(val lower: Double, val upper: Double)

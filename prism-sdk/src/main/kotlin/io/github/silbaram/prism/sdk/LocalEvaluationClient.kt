@@ -45,6 +45,9 @@ internal class LocalEvaluationClient(
     private val exposures = Caffeine.newBuilder().maximumSize(options.exposureCacheMaximumSize).build<Key, CachedExposure>()
     // Pending exposures must survive cache expiry/eviction until the collector acknowledges them.
     private val pendingExposures = HashMap<Key, ClientEvent>()
+    // Lifetime deduplication is separate from the bounded, expiring server lookup cache.
+    // Keep the original reference/version so conversions still point to an actual exposure.
+    private val recordedExposures = HashMap<Key, ClientEvent>()
     private val rejectedExposures = Caffeine.newBuilder().maximumSize(options.eventQueueCapacity.toLong())
         .build<String, Boolean>()
     private val flushLock = ReentrantLock()
@@ -112,7 +115,7 @@ internal class LocalEvaluationClient(
         val result = evaluate(userId, experimentKey, attributes)
         if (result.variant == null) return result
         val exposure = enqueueExposure(result) ?: return failed(userId, experimentKey)
-        return result.copy(exposureEventId = exposure.eventId)
+        return result.copy(configVersion = exposure.configVersion, exposureEventId = exposure.eventId)
     }
 
     fun recordExposure(result: AssignmentResponse): Boolean = enqueueExposure(result) != null
@@ -125,8 +128,19 @@ internal class LocalEvaluationClient(
         val event = ClientEvent(UUID.randomUUID().toString(), "exposure", result.userId, result.experimentKey,
             variant, Instant.now().toString(), version)
         synchronized(queue) {
-            if (!enqueue(event)) return null
+            if (closed.get()) return null
             val key = Key(result.userId, result.experimentKey)
+            recordedExposures[key]?.takeIf { it.variant == variant }?.let {
+                exposures.put(key, CachedExposure(it))
+                return it
+            }
+            if (key !in recordedExposures && recordedExposures.size >= options.exposureDedupCapacity) {
+                logger.warn("Exposure deduplication capacity reached; rejecting new user/experiment exposure")
+                return null
+            }
+            // A changed variant must remain observable as contamination; never attribute it to the old variant.
+            if (!enqueue(event)) return null
+            recordedExposures[key] = event
             exposures.put(key, CachedExposure(event))
             pendingExposures[key] = event
         }
@@ -278,6 +292,7 @@ internal class LocalEvaluationClient(
                                     rejectedExposures.put(removed.eventId, true)
                                     queue.values.removeIf { it.exposureEventId == removed.eventId }
                                     val key = Key(removed.userId, removed.experimentKey)
+                                    recordedExposures.remove(key, removed)
                                     exposures.getIfPresent(key)?.takeIf { it.event.eventId == removed.eventId }
                                         ?.let { exposures.asMap().remove(key, it) }
                                 }
@@ -311,6 +326,7 @@ internal class LocalEvaluationClient(
             try {
                 eventWorker.shutdownNow()
                 http.shutdownNow()
+                synchronized(queue) { recordedExposures.clear() }
                 try { Runtime.getRuntime().removeShutdownHook(shutdownHook) } catch (_: IllegalStateException) { /* JVM shutdown */ }
             } finally { shutdownCompleted.countDown() }
         }
@@ -321,5 +337,5 @@ internal class LocalEvaluationClient(
 
     private fun validIdentity(value: String) = value.isNotBlank() && value.length <= 255
     private fun failed(userId: String, experimentKey: String) = AssignmentResponse(userId, experimentKey, null,
-        SdkResponseCode.CLIENT_ERROR.code, "Local evaluation unavailable or exposure queue full")
+        SdkResponseCode.CLIENT_ERROR.code, "Local evaluation unavailable or exposure capacity reached")
 }

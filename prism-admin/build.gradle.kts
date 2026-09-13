@@ -13,6 +13,7 @@ tasks.getByName<BootJar>("bootJar") {
 dependencies {
     implementation(project(":prism-core"))
     implementation(project(":prism-infrastructure"))
+    implementation("org.apache.commons:commons-math3:3.6.1")
 
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-thymeleaf")

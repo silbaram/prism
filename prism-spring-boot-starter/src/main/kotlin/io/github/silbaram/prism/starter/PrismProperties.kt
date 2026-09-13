@@ -17,5 +17,6 @@ data class PrismProperties(
     var eventBatchSize: Int = 100,
     var eventQueueCapacity: Int = 10_000,
     var exposureCacheMaximumSize: Long = 10_000,
-    var shutdownTimeout: Duration = Duration.ofSeconds(5)
+    var shutdownTimeout: Duration = Duration.ofSeconds(5),
+    var exposureDedupCapacity: Int = 100_000
 )

@@ -20,6 +20,7 @@ prism:
     event-batch-size: 100
     event-queue-capacity: 10000
     exposure-cache-maximum-size: 10000
+    exposure-dedup-capacity: 100000
     shutdown-timeout: 5s
     assignment-cache-ttl: 30s
     assignment-cache-maximum-size: 10000
@@ -142,3 +143,5 @@ val accepted = conversionTracker.trackConversionSafe("user-123", "checkout", "pu
 ```bash
 ./gradlew :prism-spring-boot-starter:test
 ```
+
+LOCAL 노출은 공유 client 수명 동안 사용자×실험별로 중복 제거합니다. `exposure-dedup-capacity` 도달 시 새 조합의 노출은 실패하므로 예상 사용자 수에 맞게 설정하세요. 어노테이션과 Strategy는 실제 경험을 제공하는 시점에 사용합니다. 화면 준비와 노출이 다르면 SDK의 `evaluate()` / `recordExposure()`로 분리하세요. [Phase 2 정책](../docs/issue-28-phase-2.md)을 참고하세요.

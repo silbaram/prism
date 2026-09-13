@@ -34,7 +34,10 @@ class ExperimentEntity(
     @Column(nullable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),
 
-    var updatedAt: LocalDateTime = LocalDateTime.now()
+    var updatedAt: LocalDateTime = LocalDateTime.now(),
+
+    @Column(name = "configuration_locked", nullable = false)
+    var configurationLocked: Boolean = false
 ) {
     fun addVariant(variant: VariantEntity) {
         variants.add(variant)

@@ -22,7 +22,7 @@ class PrismExperimentClient @JvmOverloads constructor(
         .build<AssignmentKey, AssignmentOutcome?>()
     private val lookups = ConcurrentHashMap<AssignmentKey, CompletableFuture<AssignmentOutcome?>>()
 
-    /** Every explicit assign enqueues/persists an exposure, depending on the client's evaluation mode. */
+    /** Registers actual exposure: LOCAL deduplicates during client lifetime; REMOTE persists each call. */
     @JvmOverloads
     fun assign(userId: String, experimentKey: String, attributes: Map<String, Any> = emptyMap()): AssignmentOutcome {
         val key = AssignmentKey(userId, experimentKey)

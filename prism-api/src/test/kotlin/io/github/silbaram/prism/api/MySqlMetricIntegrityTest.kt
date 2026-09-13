@@ -56,6 +56,17 @@ class MySqlMetricIntegrityTest {
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/027_metric_integrity.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/028_exact_identity_and_attribution.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/029_local_evaluation_events.sql"))
+                        connection.createStatement().use { sql ->
+                            sql.executeUpdate("INSERT INTO experiments (experiment_key, description, status) VALUES " +
+                                "('exposed-draft', '', 'DRAFT'), ('exposed-draft ', '', 'DRAFT'), " +
+                                "('paused', '', 'PAUSED'), ('ended', '', 'ENDED')")
+                            sql.executeUpdate("INSERT INTO log_impression (experiment_key, variant, user_id) " +
+                                "VALUES ('exposed-draft', 'A', 'u')")
+                        }
+                        ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/030_experiment_reliability.sql"))
+                        assertEquals(1L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft'"))
+                        assertEquals(0L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft '"))
+                        assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM experiments WHERE experiment_key IN ('paused', 'ended') AND configuration_locked = TRUE"))
                         assertEquals(1L, scalar(connection, "SELECT COUNT(*) FROM log_conversion_unattributed_archive"))
                         assertEquals(3L, scalar(connection, "SELECT COUNT(*) FROM log_conversion WHERE impression_id IS NULL"))
                     } else {
@@ -76,6 +87,27 @@ class MySqlMetricIntegrityTest {
                     val experiments = context.getBean(ExperimentRepository::class.java)
                     val impressions = context.getBean(ImpressionLogRepository::class.java)
                     val conversions = context.getBean(ConversionLogRepository::class.java)
+                    val changes = context.getBean(ExperimentChangeRepository::class.java)
+                    val auditTime = Instant.parse("2026-09-13T02:03:04.123456Z")
+                    val change = changes.save(ExperimentChangeEntity(experimentId = 987654321L,
+                        experimentKey = "audit-exact ", action = "UPDATE", beforeSnapshot = "{\"status\":\"DRAFT\"}",
+                        afterSnapshot = "{\"status\":\"ACTIVE\"}",
+                        changedAt = LocalDateTime.ofInstant(auditTime, java.time.ZoneOffset.UTC)))
+                    assertEquals(change.beforeSnapshot, changes.findById(change.id!!).orElseThrow().beforeSnapshot)
+                    // A snapshot contains all targeting rules; multiple valid TEXT rows can exceed one TEXT column.
+                    val largeSnapshot = "{\"targetingRules\":[\"${"x".repeat(40_000)}\",\"${"y".repeat(40_000)}\"]}"
+                    val largeChange = changes.save(ExperimentChangeEntity(experimentId = 987654321L,
+                        experimentKey = "audit-large", action = "UPDATE", beforeSnapshot = largeSnapshot,
+                        afterSnapshot = largeSnapshot))
+                    assertEquals(largeSnapshot, changes.findById(largeChange.id!!).orElseThrow().afterSnapshot)
+                    DriverManager.getConnection(url, username, password).use { connection ->
+                        connection.createStatement().use { statement ->
+                            statement.executeQuery("SELECT UNIX_TIMESTAMP(changed_at) FROM experiment_changes WHERE id = ${change.id}").use {
+                                assertTrue(it.next())
+                                assertEquals(java.math.BigDecimal("1789264984.123456"), it.getBigDecimal(1))
+                            }
+                        }
+                    }
                     val lookup = context.getBean(LoadImpressionPort::class.java)
                     val tracker = context.getBean(TrackConversionService::class.java)
                     fun track(user: String, key: String = "checkout", event: String = "purchase") =
@@ -83,6 +115,7 @@ class MySqlMetricIntegrityTest {
 
                     if (migrate) {
                         assertNull(experiments.findByKey("legacy")!!.goalEventName)
+                        assertTrue(experiments.findByKey("legacy")!!.configurationLocked)
                         assertEquals(1L, conversions.countConversionsByVariant("legacy", "purchase").single()[1])
                         assertEquals(1L, conversions.countEventsByVariant("legacy").single()[3])
                     }
@@ -220,7 +253,8 @@ class MySqlMetricIntegrityTest {
         val expected = mapOf("experiments" to setOf("experiment_key", "goal_event_name"),
             "variants" to setOf("name"), "log_impression" to setOf("experiment_key", "variant", "user_id", "event_id"),
             "log_conversion" to setOf("experiment_key", "variant", "user_id", "event_name", "event_id"),
-            "event_receipts" to setOf("event_id", "payload_hash", "config_version"))
+            "event_receipts" to setOf("event_id", "payload_hash", "config_version"),
+            "experiment_changes" to setOf("experiment_key"))
         val checked = mutableSetOf<Pair<String, String>>()
         connection.createStatement().use { sql ->
             sql.executeQuery("SELECT TABLE_NAME, COLUMN_NAME, COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()").use { rows ->

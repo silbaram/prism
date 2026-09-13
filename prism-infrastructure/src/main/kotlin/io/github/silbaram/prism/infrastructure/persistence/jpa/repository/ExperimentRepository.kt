@@ -5,10 +5,16 @@ import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.Experime
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Lock
+import org.springframework.data.jpa.repository.Query
+import jakarta.persistence.LockModeType
 import org.springframework.stereotype.Repository
 
 @Repository
 interface ExperimentRepository : JpaRepository<ExperimentEntity, Long> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT e FROM ExperimentEntity e WHERE e.id = :id")
+    fun findForUpdate(id: Long): ExperimentEntity?
     fun findByKey(key: String): ExperimentEntity?
     fun findAllByStatus(status: ExperimentStatus): List<ExperimentEntity>
 

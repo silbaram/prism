@@ -8,6 +8,9 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface ImpressionLogRepository : JpaRepository<ImpressionLogEntity, Long> {
+    fun existsByExperimentKey(experimentKey: String): Boolean
+    @Query("SELECT COUNT(DISTINCT i.userId) FROM ImpressionLogEntity i WHERE i.experimentKey = :experimentKey")
+    fun countExposedUsers(experimentKey: String): Long
     fun findByEventId(eventId: String): ImpressionLogEntity?
     @Query("SELECT i.variant, COUNT(DISTINCT i.userId) FROM ImpressionLogEntity i WHERE i.experimentKey = :experimentKey GROUP BY i.variant")
     fun countImpressionsByVariant(experimentKey: String): List<Array<Any>>

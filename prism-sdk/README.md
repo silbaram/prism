@@ -42,7 +42,11 @@ if (exposed) {
 }
 ```
 
-`evaluate()`는 노출을 만들지 않습니다. `assign()`은 평가와 노출 큐 등록을 함께 수행하며, 반복 호출은 각각 새 노출 이벤트를 생성합니다. 동일 이벤트의 재전송만 event ID로 중복 제거합니다. 사용자×실험 단위 노출 억제는 Phase 2 후속 범위입니다.
+`evaluate()`는 노출을 만들지 않습니다. `assign()`은 실제 경험을 제공하는 시점에 평가와 노출 등록을 함께 수행하는 편의 API입니다. 준비·미리 불러오기에는 `evaluate()`를 사용하고, 실제로 보여줄 때 `recordExposure()`를 호출하세요.
+
+LOCAL은 client 인스턴스 수명 동안 사용자×실험의 동일 변형 노출을 한 번만 등록합니다. 반복 호출은 성공하며 원래 노출 ID·설정 버전을 재사용합니다. ACK·조회 캐시 TTL·퇴출·전체 설정 버전 갱신은 이 기록을 지우지 않습니다. 평가 자체는 최신 설정을 사용하며, 예외적으로 변형이 바뀌면 새 노출을 기록해 잘못된 귀속을 방지합니다. 별도 client나 재시작 사이에는 공유하지 않으므로 client를 애플리케이션에서 공유하세요.
+
+중복 제거 목록은 기본 100,000 사용자×실험이며 `exposureDedupCapacity`로 조정합니다. 자동 퇴출 없이 한도에 도달하면 새 사용자×실험의 노출을 거절하고 로그를 남깁니다. 이미 기록한 조합과 전환은 계속 처리합니다. 예상 사용자 수와 프로세스 수명을 고려해 한도를 정하세요. 전송 실패는 원래 이벤트로 재시도하고, 영구 거부되거나 큐에 등록하지 못한 노출은 다음 호출에서 다시 등록할 수 있습니다.
 
 특정 노출에 전환을 연결하려면 `experiments.track(outcome, "purchase")`를 사용하세요. `assign()` 결과의 `exposureEventId`와 `configVersion`을 유지하므로, 이후 같은 사용자가 다른 변형에 배정되어도 원래 노출에 귀속됩니다. `PrismClient`를 직접 사용하면 `trackConversion(assignment, eventName)`에 `assign()` 결과를 전달합니다. 순수 `evaluate()` 결과에는 노출 ID가 없어 이 방식으로 추적할 수 없습니다. `trackIfAssigned(userId, key, eventName)`은 최근 노출을 조회하는 별도 계약입니다.
 
@@ -58,6 +62,7 @@ val client = PrismClient(
         eventBatchSize = 100,
         eventQueueCapacity = 10_000,
         exposureCacheMaximumSize = 10_000,
+        exposureDedupCapacity = 100_000,
         shutdownTimeout = java.time.Duration.ofSeconds(5)
     )
 )

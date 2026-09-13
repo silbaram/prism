@@ -17,12 +17,19 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentChangeEntity
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentChangeRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ImpressionLogRepository
 
 @Service
 @Transactional
 class ExperimentService(
-    private val experimentRepository: ExperimentRepository
+    private val experimentRepository: ExperimentRepository,
+    private val changeRepository: ExperimentChangeRepository,
+    private val impressionRepository: ImpressionLogRepository
 ) {
+    private val mapper = jacksonObjectMapper()
 
     fun createExperiment(dto: ExperimentCreateDto): ExperimentEntity {
         validateExperimentIdentities(dto.key, dto.variants.map { it.name })
@@ -47,40 +54,58 @@ class ExperimentService(
                 experiment.addTargetingRule(TargetingRuleEntity(expression = rule.expression))
             }
 
-        return experimentRepository.save(experiment)
+        return saveWithHistory(experiment, "CREATE", null)
     }
 
     fun updateExperiment(id: Long, dto: ExperimentUpdateDto): ExperimentEntity {
-        val experiment = findByIdOrThrow(id)
+        val experiment = findForUpdate(id)
+        val before = snapshot(experiment)
+        val locked = isLocked(experiment)
 
-        validateExperimentIdentities(dto.key, dto.variants.map { it.name })
-        validateWeights(dto.variants.map { it.weight })
-        validateGoal(dto.goalEventName)
+        // Legacy invalid definitions must still be stoppable without changing their frozen settings.
+        if (!locked || dto.status == ExperimentStatus.ACTIVE) {
+            validateExperimentIdentities(dto.key, dto.variants.map { it.name })
+            validateWeights(dto.variants.map { it.weight })
+            validateGoal(dto.goalEventName)
+        }
         if (experiment.key != dto.key) validateUniqueKey(dto.key)
+
+        val rules = dto.targetingRules.map { it.expression }.let { if (locked) it else it.filter(String::isNotBlank) }
+        if (locked) {
+            require(experiment.key == dto.key && experiment.goalEventName.orEmpty() == dto.goalEventName &&
+                experiment.variants.map { it.name to it.weight } == dto.variants.map { it.name to it.weight } &&
+                experiment.targetingRules.map { it.expression } == rules) {
+                "시작한 실험의 키, 목표 이벤트, 변형 이름·순서·가중치, 타겟팅은 변경할 수 없습니다. 새 실험을 생성하세요."
+            }
+        }
+        validateTransition(experiment, dto.status)
 
         experiment.key = dto.key
         experiment.description = dto.description
-        experiment.goalEventName = dto.goalEventName.trim()
+        if (!locked) experiment.goalEventName = dto.goalEventName.trim()
         experiment.status = dto.status
-        experiment.updatedAt = java.time.LocalDateTime.now()
-
-        experiment.variants.clear()
-        dto.variants.forEach { variant ->
-            experiment.addVariant(VariantEntity(name = variant.name, weight = variant.weight))
+        experiment.configurationLocked = locked || dto.status != ExperimentStatus.DRAFT
+        if (experiment.variants.map { it.name to it.weight } != dto.variants.map { it.name to it.weight }) {
+            experiment.variants.clear()
+            dto.variants.forEach { variant ->
+                experiment.addVariant(VariantEntity(name = variant.name, weight = variant.weight))
+            }
         }
 
-        experiment.targetingRules.clear()
-        dto.targetingRules
-            .filter { it.expression.isNotBlank() }
-            .forEach { rule ->
-                experiment.addTargetingRule(TargetingRuleEntity(expression = rule.expression))
-            }
+        if (experiment.targetingRules.map { it.expression } != rules) {
+            experiment.targetingRules.clear()
+            rules.forEach { experiment.addTargetingRule(TargetingRuleEntity(expression = it)) }
+        }
 
-        return experimentRepository.save(experiment)
+        return saveWithHistory(experiment, "UPDATE", before)
     }
 
     fun deleteExperiment(id: Long) {
-        experimentRepository.deleteById(id)
+        val experiment = findForUpdate(id)
+        require(!isLocked(experiment)) { "시작했거나 노출이 있는 실험은 삭제할 수 없습니다. 종료 상태로 보존하세요." }
+        changeRepository.save(ExperimentChangeEntity(experimentId = id, experimentKey = experiment.key,
+            action = "DELETE", beforeSnapshot = snapshot(experiment), afterSnapshot = null))
+        experimentRepository.delete(experiment)
     }
 
     @Transactional(readOnly = true)
@@ -108,17 +133,60 @@ class ExperimentService(
     }
 
     fun startExperiment(id: Long): ExperimentEntity {
-        val experiment = findByIdOrThrow(id)
+        val experiment = findForUpdate(id)
+        val before = snapshot(experiment)
+        validateTransition(experiment, ExperimentStatus.ACTIVE)
         validateExperimentIdentities(experiment.key, experiment.variants.map { it.name })
         validateWeights(experiment.variants.map { it.weight })
+        validateGoal(experiment.goalEventName.orEmpty())
         experiment.status = ExperimentStatus.ACTIVE
-        return experimentRepository.save(experiment)
+        experiment.configurationLocked = true
+        return saveWithHistory(experiment, "START", before)
     }
 
     fun pauseExperiment(id: Long): ExperimentEntity {
-        val experiment = findByIdOrThrow(id)
+        val experiment = findForUpdate(id)
+        val before = snapshot(experiment)
+        validateTransition(experiment, ExperimentStatus.PAUSED)
         experiment.status = ExperimentStatus.PAUSED
-        return experimentRepository.save(experiment)
+        experiment.configurationLocked = true
+        return saveWithHistory(experiment, "PAUSE", before)
+    }
+
+    @Transactional(readOnly = true)
+    fun getChangeHistory(id: Long): List<ExperimentChangeEntity> =
+        changeRepository.findTop50ByExperimentIdOrderByIdDesc(id)
+
+    private fun findForUpdate(id: Long): ExperimentEntity =
+        experimentRepository.findForUpdate(id) ?: throw ExperimentNotFoundException(id)
+
+    private fun isLocked(experiment: ExperimentEntity): Boolean = experiment.configurationLocked ||
+        experiment.status != ExperimentStatus.DRAFT || impressionRepository.existsByExperimentKey(experiment.key)
+
+    private fun validateTransition(experiment: ExperimentEntity, target: ExperimentStatus) {
+        require(experiment.status != ExperimentStatus.ENDED || target == ExperimentStatus.ENDED) {
+            "종료한 실험은 재시작할 수 없습니다. 새 실험을 생성하세요."
+        }
+        require(target != ExperimentStatus.DRAFT || !isLocked(experiment)) {
+            "시작했거나 노출이 있는 실험은 DRAFT로 되돌릴 수 없습니다."
+        }
+    }
+
+    private fun snapshot(experiment: ExperimentEntity): String = mapper.writeValueAsString(linkedMapOf(
+        "key" to experiment.key, "description" to experiment.description, "goalEventName" to experiment.goalEventName,
+        "status" to experiment.status, "configurationLocked" to experiment.configurationLocked,
+        "variants" to experiment.variants.map { linkedMapOf("name" to it.name, "weight" to it.weight) },
+        "targetingRules" to experiment.targetingRules.map { it.expression }
+    ))
+
+    private fun saveWithHistory(experiment: ExperimentEntity, action: String, before: String?): ExperimentEntity {
+        val after = snapshot(experiment)
+        if (before == after) return experiment
+        experiment.updatedAt = java.time.LocalDateTime.now()
+        val saved = experimentRepository.save(experiment)
+        changeRepository.save(ExperimentChangeEntity(experimentId = requireNotNull(saved.id), experimentKey = saved.key,
+            action = action, beforeSnapshot = before, afterSnapshot = after))
+        return saved
     }
 
     private fun findByIdOrThrow(id: Long): ExperimentEntity =

@@ -8,6 +8,8 @@ import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.Experime
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.VariantEntity
 import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentChangeRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ImpressionLogRepository
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
@@ -34,10 +36,13 @@ import io.mockk.verify
 class ExperimentServiceTest : FunSpec({
 
     val experimentRepository = mockk<ExperimentRepository>(relaxed = true)
-    val experimentService = ExperimentService(experimentRepository)
+    val changes = mockk<ExperimentChangeRepository>(relaxed = true)
+    val impressions = mockk<ImpressionLogRepository>(relaxed = true)
+    val experimentService = ExperimentService(experimentRepository, changes, impressions)
 
     beforeTest {
-        clearMocks(experimentRepository)
+        clearMocks(experimentRepository, changes, impressions)
+        every { changes.save(any()) } answers { firstArg() }
     }
 
     test("새 실험을 만들고 변형을 저장한다") {
@@ -50,7 +55,10 @@ class ExperimentServiceTest : FunSpec({
 
         every { experimentRepository.findByKey("test-exp") } returns null
         val savedEntity = slot<ExperimentEntity>()
-        every { experimentRepository.save(capture(savedEntity)) } answers { savedEntity.captured }
+        every { experimentRepository.save(capture(savedEntity)) } answers { savedEntity.captured.let {
+            ExperimentEntity(id = 1, key = it.key, description = it.description, goalEventName = it.goalEventName,
+                status = it.status, variants = it.variants, targetingRules = it.targetingRules)
+        } }
 
         val created = experimentService.createExperiment(createDto)
 
@@ -79,7 +87,7 @@ class ExperimentServiceTest : FunSpec({
     }
     test("update validates weights before mutating the managed entity") {
         val entity = ExperimentEntity(id = 1, key = "e", description = "before", goalEventName = "purchase")
-        every { experimentRepository.findById(1) } returns java.util.Optional.of(entity)
+        every { experimentRepository.findForUpdate(1) } returns entity
         val dto = io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto(
             "e", "after", "signup", ExperimentStatus.ACTIVE, listOf(VariantDto("A", 20)))
         shouldThrow<InvalidVariantWeightException> { experimentService.updateExperiment(1, dto) }
@@ -103,7 +111,7 @@ class ExperimentServiceTest : FunSpec({
             experimentService.createExperiment(ExperimentCreateDto("e", "", "  ", listOf(VariantDto("A", 100))))
         }
         val entity = ExperimentEntity(id = 1, key = "e", description = "")
-        every { experimentRepository.findById(1) } returns java.util.Optional.of(entity)
+        every { experimentRepository.findForUpdate(1) } returns entity
         every { experimentRepository.save(any()) } answers { firstArg() }
         val updated = experimentService.updateExperiment(1,
             io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto(
@@ -127,7 +135,7 @@ class ExperimentServiceTest : FunSpec({
         val entity = ExperimentEntity(id = 1, key = "e", description = "before").apply {
             addVariant(VariantEntity(name = "A", weight = 100))
         }
-        every { experimentRepository.findById(1) } returns java.util.Optional.of(entity)
+        every { experimentRepository.findForUpdate(1) } returns entity
         shouldThrow<IllegalArgumentException> {
             experimentService.updateExperiment(1, io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto(
                 "e", "after", "purchase", ExperimentStatus.ACTIVE, listOf(VariantDto("B", 50), VariantDto("B", 50))))
@@ -143,7 +151,7 @@ class ExperimentServiceTest : FunSpec({
             addVariant(VariantEntity(name = "B", weight = 50))
             addVariant(VariantEntity(name = "B", weight = 50))
         }
-        every { experimentRepository.findById(1) } returns java.util.Optional.of(entity)
+        every { experimentRepository.findForUpdate(1) } returns entity
         shouldThrow<IllegalArgumentException> { experimentService.startExperiment(1) }
         entity.status shouldBe ExperimentStatus.DRAFT
         entity.variants[1].name = "C"

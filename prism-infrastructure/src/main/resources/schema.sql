@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     description VARCHAR(255) NOT NULL,
     goal_event_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NULL,
     status VARCHAR(50) NOT NULL,
+    configuration_locked BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_experiment_key (experiment_key),
@@ -67,4 +68,15 @@ CREATE TABLE IF NOT EXISTS event_receipts (
     event_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
     payload_hash VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     config_version VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS experiment_changes (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    experiment_id BIGINT NOT NULL,
+    experiment_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    action VARCHAR(32) NOT NULL,
+    before_snapshot LONGTEXT NULL,
+    after_snapshot LONGTEXT NULL,
+    changed_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    INDEX idx_experiment_changes (experiment_id, id)
 );

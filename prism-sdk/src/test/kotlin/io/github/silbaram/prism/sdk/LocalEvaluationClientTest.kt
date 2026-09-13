@@ -106,12 +106,83 @@ class LocalEvaluationClientTest {
         assertEquals(1, configRequests.get())
         assertEquals(0, remoteRequests.get())
         assertTrue(eventRequests.isEmpty())
-        assertEquals(20, client.pendingEventCount)
+        assertEquals(1, client.pendingEventCount)
         assertTrue(wrapper.trackIfAssigned("u", "checkout", "purchase"))
         assertTrue(client.flush())
         val events = eventRequests.single().events
-        assertEquals(21, events.size)
-        assertEquals(events[19].eventId, events.last().exposureEventId)
+        assertEquals(2, events.size)
+        assertEquals(events.first().eventId, events.last().exposureEventId)
+    }
+
+    @Test
+    fun `lifetime dedup capacity rejects new identities without evicting prior exposures`() {
+        create(PrismClientOptions(exposureDedupCapacity = 1, configSyncInterval = Duration.ofHours(1),
+            eventFlushInterval = Duration.ofHours(1)))
+        val attributes = mapOf("age" to 25, "country" to "KR")
+        val first = client.assign("u", "checkout", attributes)
+        assertTrue(client.flush())
+        assertNull(client.assign("new", "checkout", attributes).variant)
+        assertEquals(first.exposureEventId, client.assign("u", "checkout", attributes).exposureEventId)
+        assertEquals(0, client.pendingEventCount)
+        assertTrue(client.trackConversion(first, "purchase"))
+        assertTrue(client.flush())
+    }
+
+    @Test
+    fun `dedup survives acknowledgement cache pressure and unrelated configuration changes`() {
+        create(PrismClientOptions(configSyncInterval = Duration.ofHours(1), eventFlushInterval = Duration.ofHours(1),
+            exposureCacheMaximumSize = 1))
+        val attributes = mapOf("age" to 25, "country" to "KR")
+        val first = client.assign("u", "checkout", attributes)
+        assertTrue(client.flush())
+        repeat(10) { assertNotNull(client.assign("other-$it", "checkout", attributes).variant) }
+        assertTrue(client.flush())
+        config.set(configuration("b".repeat(64)))
+        assertTrue(client.refreshConfig())
+        val repeated = client.assign("u", "checkout", attributes)
+        assertEquals(first.exposureEventId, repeated.exposureEventId)
+        assertEquals(first.configVersion, repeated.configVersion)
+        assertTrue(client.recordExposure(client.evaluate("u", "checkout", attributes)))
+        assertEquals(0, client.pendingEventCount)
+        assertTrue(client.trackConversion(repeated, "purchase"))
+        assertTrue(client.flush())
+        val all = eventRequests.flatMap { it.events }
+        assertEquals(1, all.count { it.type == "exposure" && it.userId == "u" })
+        assertEquals(first.exposureEventId, all.last().exposureEventId)
+        assertEquals(first.configVersion, all.last().configVersion)
+    }
+
+    @Test
+    fun `concurrent actual exposure registration emits one event and rejected exposure can be retried`() {
+        create()
+        val evaluated = client.evaluate("u", "checkout", mapOf("age" to 25, "country" to "KR"))
+        val workers = Executors.newFixedThreadPool(8)
+        try {
+            val results = (1..80).map { workers.submit<Boolean> { client.recordExposure(evaluated) } }
+            assertTrue(results.all { it.get(3, TimeUnit.SECONDS) })
+            assertEquals(1, client.pendingEventCount)
+        } finally { workers.shutdownNow() }
+        rejectExposure.set(true)
+        assertFalse(client.flush())
+        rejectExposure.set(false)
+        assertTrue(client.recordExposure(evaluated))
+        assertEquals(1, client.pendingEventCount)
+        assertTrue(client.flush())
+        assertNotEquals(eventRequests.first().events.single().eventId, eventRequests.last().events.single().eventId)
+    }
+
+    @Test
+    fun `full queue allows already recorded exposure but does not remember failed admissions`() {
+        create(PrismClientOptions(eventBatchSize = 1, eventQueueCapacity = 1,
+            configSyncInterval = Duration.ofHours(1), eventFlushInterval = Duration.ofHours(1)))
+        retryUser.set("u")
+        val attributes = mapOf("age" to 25, "country" to "KR")
+        val first = client.assign("u", "checkout", attributes)
+        assertEquals(first.exposureEventId, client.assign("u", "checkout", attributes).exposureEventId)
+        assertNull(client.assign("new", "checkout", attributes).variant)
+        retryUser.set(null)
+        assertTrue(client.flush())
+        assertNotNull(client.assign("new", "checkout", attributes).exposureEventId)
     }
 
     @Test
