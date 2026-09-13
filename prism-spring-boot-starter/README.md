@@ -12,6 +12,7 @@ implementation("io.github.silbaram.prism:prism-spring-boot-starter:0.0.1-SNAPSHO
 prism:
   client:
     url: http://localhost:8080
+    api-key: ${PRISM_CLIENT_API_KEY}
     timeout: 2s
     evaluation-mode: LOCAL
     config-sync-interval: 60s
@@ -145,3 +146,5 @@ val accepted = conversionTracker.trackConversionSafe("user-123", "checkout", "pu
 ```
 
 LOCAL 노출은 공유 client 수명 동안 사용자×실험별로 중복 제거합니다. `exposure-dedup-capacity` 도달 시 새 조합의 노출은 실패하므로 예상 사용자 수에 맞게 설정하세요. 어노테이션과 Strategy는 실제 경험을 제공하는 시점에 사용합니다. 화면 준비와 노출이 다르면 SDK의 `evaluate()` / `recordExposure()`로 분리하세요. [Phase 2 정책](../docs/issue-28-phase-2.md)을 참고하세요.
+
+Phase 3 API는 설정·이벤트·기존 원격 API 모두 키를 요구합니다. 키는 서버의 `PRISM_API_KEYS`와 일치해야 합니다. 참여 비율·기간을 쓰기 전에 모든 소비자를 새 SDK/스타터로 갱신하세요. [Phase 3 운영·배포 가이드](../docs/issue-28-phase-3.md)를 참고하세요.

@@ -58,7 +58,8 @@ class AssignVariantService(
 
         // 2단계: 변형 할당 (Domain Layer의 비즈니스 로직 사용)
         val variant = TrafficSplitter.assign(experiment, command.userId)
-        val variantName = variant?.name ?: ""
+            ?: return AssignVariantResult.experimentNotFound(command.userId, command.experimentKey)
+        val variantName = variant.name
 
         // 3단계: 노출 이벤트 기록 (응답 전에 커밋)
         if (variantName.isNotEmpty()) {

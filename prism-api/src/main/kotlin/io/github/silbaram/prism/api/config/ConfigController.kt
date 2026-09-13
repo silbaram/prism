@@ -28,13 +28,17 @@ class ConfigSnapshotLoader(private val experiments: ExperimentRepository) {
             try {
                 validateExperimentIdentities(entity.key, entity.variants.map { it.name })
                 validateVariantWeights(entity.variants.map { it.weight })
+                require(entity.trafficAllocation in 0..100)
+                require(entity.startsAt == null || entity.endsAt == null || entity.startsAt!! < entity.endsAt!!)
             } catch (exception: IllegalArgumentException) {
                 logger.warn("Excluding invalid active experiment: id={}, reason={}", entity.id, exception.message)
                 return@mapNotNull null
             }
             ExperimentConfig(entity.key, entity.status.name,
                 entity.variants.map { VariantConfig(it.name, it.weight) },
-                entity.targetingRules.map { it.expression }, entity.goalEventName)
+                entity.targetingRules.map { it.expression }, entity.goalEventName, entity.trafficAllocation,
+                entity.startsAt?.toInstant(java.time.ZoneOffset.UTC)?.toString(),
+                entity.endsAt?.toInstant(java.time.ZoneOffset.UTC)?.toString())
         }
         val hash = MessageDigest.getInstance("SHA-256")
             .digest(jacksonObjectMapper().writeValueAsBytes(definitions))

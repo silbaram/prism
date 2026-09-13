@@ -37,7 +37,19 @@ class ExperimentEntity(
     var updatedAt: LocalDateTime = LocalDateTime.now(),
 
     @Column(name = "configuration_locked", nullable = false)
-    var configurationLocked: Boolean = false
+    var configurationLocked: Boolean = false,
+    @Column(name = "traffic_allocation", nullable = false)
+    var trafficAllocation: Int = 100,
+    @Convert(converter = UtcLogTimestampConverter::class)
+    @Column(name = "starts_at")
+    var startsAt: LocalDateTime? = null,
+    @Convert(converter = UtcLogTimestampConverter::class)
+    @Column(name = "ends_at")
+    var endsAt: LocalDateTime? = null,
+    @ElementCollection
+    @CollectionTable(name = "experiment_guardrails", joinColumns = [JoinColumn(name = "experiment_id")])
+    @Column(name = "event_name", nullable = false)
+    var guardrailEventNames: MutableSet<String> = linkedSetOf()
 ) {
     fun addVariant(variant: VariantEntity) {
         variants.add(variant)
@@ -51,5 +63,5 @@ class ExperimentEntity(
 }
 
 enum class ExperimentStatus {
-    DRAFT, ACTIVE, PAUSED, ENDED
+    DRAFT, SCHEDULED, ACTIVE, PAUSED, ENDED
 }

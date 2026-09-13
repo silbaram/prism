@@ -72,9 +72,14 @@ object TrafficSplitter {
     fun assign(
         experiment: Experiment,
         userId: String,
-        context: UserContext = UserContext(emptyMap())
+        context: UserContext = UserContext(emptyMap()),
+        now: java.time.Instant = java.time.Instant.now()
     ): Variant? {
         require(experiment.variants.isNotEmpty()) { "Experiment must have at least one variant" }
+        if (experiment.startsAt?.let { now < it } == true || experiment.endsAt?.let { now >= it } == true) return null
+        // An independent hash space preserves variant assignments as participation increases.
+        val participation = abs(MurmurHash.hash32("prism:allocation:${experiment.key.length}:${experiment.key}:$userId").toLong()) % 100
+        if (participation >= experiment.trafficAllocation) return null
 
         // 1단계: 타겟팅 규칙 검증
         // 실험에 타겟팅 규칙이 있다면, 모든 규칙을 만족하는지 확인

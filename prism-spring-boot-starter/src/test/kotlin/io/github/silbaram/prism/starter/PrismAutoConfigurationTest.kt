@@ -31,7 +31,8 @@ class PrismAutoConfigurationTest {
     fun `local evaluation properties bind and invalid queue limits fail at startup`() {
         contextRunner.withPropertyValues("prism.client.url=http://localhost:1", "prism.client.initialization-timeout=0s",
             "prism.client.config-sync-interval=15s", "prism.client.event-flush-interval=2s", "prism.client.event-batch-size=20",
-            "prism.client.event-queue-capacity=200", "prism.client.shutdown-timeout=1s", "prism.client.exposure-dedup-capacity=123")
+            "prism.client.event-queue-capacity=200", "prism.client.shutdown-timeout=1s", "prism.client.exposure-dedup-capacity=123",
+            "prism.client.api-key=prism-test-api-key-0123456789abcdef")
             .run { context ->
                 assertThat(context).hasNotFailed()
                 val properties = context.getBean(PrismProperties::class.java)
@@ -41,6 +42,8 @@ class PrismAutoConfigurationTest {
                 assertThat(properties.eventBatchSize).isEqualTo(20)
                 assertThat(properties.eventQueueCapacity).isEqualTo(200)
                 assertThat(properties.exposureDedupCapacity).isEqualTo(123)
+                assertThat(properties.apiKey).isEqualTo("prism-test-api-key-0123456789abcdef")
+                assertThat(properties.toString()).doesNotContain(properties.apiKey)
                 assertThat(context.getBean(PrismClient::class.java).assign("u", "e").variant).isNull()
             }
         contextRunner.withPropertyValues("prism.client.url=http://localhost:1", "prism.client.event-batch-size=0")

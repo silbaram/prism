@@ -7,10 +7,14 @@ CREATE TABLE IF NOT EXISTS experiments (
     goal_event_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NULL,
     status VARCHAR(50) NOT NULL,
     configuration_locked BOOLEAN NOT NULL DEFAULT FALSE,
+    traffic_allocation INT NOT NULL DEFAULT 100,
+    starts_at TIMESTAMP(6) NULL,
+    ends_at TIMESTAMP(6) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_experiment_key (experiment_key),
-    INDEX idx_status (status)
+    INDEX idx_status (status),
+    INDEX idx_experiment_schedule (status, starts_at, ends_at)
 );
 
 -- 2. 변형 테이블
@@ -78,5 +82,13 @@ CREATE TABLE IF NOT EXISTS experiment_changes (
     before_snapshot LONGTEXT NULL,
     after_snapshot LONGTEXT NULL,
     changed_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    actor VARCHAR(255) NULL,
     INDEX idx_experiment_changes (experiment_id, id)
+);
+
+CREATE TABLE IF NOT EXISTS experiment_guardrails (
+    experiment_id BIGINT NOT NULL,
+    event_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    PRIMARY KEY (experiment_id, event_name),
+    CONSTRAINT fk_guardrail_experiment FOREIGN KEY (experiment_id) REFERENCES experiments(id) ON DELETE CASCADE
 );

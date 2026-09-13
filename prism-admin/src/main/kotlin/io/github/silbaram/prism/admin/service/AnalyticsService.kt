@@ -41,10 +41,18 @@ class AnalyticsService(
                 experiment.status == ExperimentStatus.ENDED))
     }
 
-    fun getEventStats(experimentKey: String): List<EventStats> =
-        conversionRepository.countEventsByVariant(experimentKey).map {
-            EventStats(it[0] as String, it[1] as String, it[2] as Long, it[3] as Long)
+    fun getEventStats(experimentKey: String): List<EventStats> {
+        val experiment = requireNotNull(experimentRepository.findByKey(experimentKey))
+        return conversionRepository.countEventsByVariant(experimentKey).map {
+            val name = it[0] as String
+            val kind = when (name) {
+                experiment.goalEventName -> "PRIMARY"
+                in experiment.guardrailEventNames -> "GUARDRAIL"
+                else -> "SECONDARY"
+            }
+            EventStats(name, it[1] as String, it[2] as Long, it[3] as Long, kind)
         }
+    }
 }
 
 /** Descriptive 95% Wilson interval for a user-level binomial proportion, in percent.
@@ -69,4 +77,4 @@ data class ExperimentStats(val experimentKey: String, val goalEventName: String?
 data class VariantStats(val variant: String, val impressions: Long, val conversions: Long?,
     val cvr: Double?, val confidenceInterval: ConfidenceInterval?)
 data class ConfidenceInterval(val lower: Double, val upper: Double)
-data class EventStats(val eventName: String, val variant: String, val users: Long, val events: Long)
+data class EventStats(val eventName: String, val variant: String, val users: Long, val events: Long, val kind: String = "SECONDARY")

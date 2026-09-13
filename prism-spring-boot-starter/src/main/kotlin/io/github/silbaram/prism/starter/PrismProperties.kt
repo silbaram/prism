@@ -18,5 +18,8 @@ data class PrismProperties(
     var eventQueueCapacity: Int = 10_000,
     var exposureCacheMaximumSize: Long = 10_000,
     var shutdownTimeout: Duration = Duration.ofSeconds(5),
-    var exposureDedupCapacity: Int = 100_000
-)
+    var exposureDedupCapacity: Int = 100_000,
+    var apiKey: String? = null
+) {
+    override fun toString() = "PrismProperties(url=$url, evaluationMode=$evaluationMode, apiKey=<redacted>)"
+}

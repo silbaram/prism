@@ -20,9 +20,15 @@ class PrismClient @JvmOverloads constructor(
     private val timeout: Duration = Duration.ofSeconds(5),
     options: PrismClientOptions = PrismClientOptions()
 ) : AutoCloseable {
+    /** Convenient authenticated construction for Java consumers. */
+    @JvmOverloads
+    constructor(baseUrl: String, apiKey: String, timeout: Duration = Duration.ofSeconds(5)) :
+        this(baseUrl, timeout, PrismClientOptions(apiKey = apiKey))
+
     private val client = HttpClient.newBuilder().connectTimeout(timeout).build()
     private val objectMapper = jacksonObjectMapper()
     private val logger = LoggerFactory.getLogger(javaClass)
+    private val apiKey = options.apiKey
     private val local = if (options.evaluationMode == EvaluationMode.LOCAL)
         LocalEvaluationClient(baseUrl.trimEnd('/'), timeout, options, client) else null
 
@@ -60,7 +66,7 @@ class PrismClient @JvmOverloads constructor(
             val request = HttpRequest.newBuilder()
                 .uri(URI.create("${baseUrl.trimEnd('/')}/v1/$path?userId=$encodedUserId&experimentKey=$encodedKey"))
                 .GET().timeout(timeout).build()
-            val response = sendWithTimeout(client, request, timeout)
+            val response = sendWithTimeout(client, request, timeout, apiKey)
             if (response.statusCode() == 200) {
                 objectMapper.readValue<AssignmentResponse>(response.body())
             } else {
@@ -90,7 +96,7 @@ class PrismClient @JvmOverloads constructor(
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .timeout(timeout).build()
-            val response = sendWithTimeout(client, request, timeout)
+            val response = sendWithTimeout(client, request, timeout, apiKey)
             val accepted = response.statusCode() == 200 &&
                 objectMapper.readValue<ConversionResponse>(response.body()).resultCode == ResponseCode.SUCCESS.code
             if (!accepted) logger.warn("Conversion rejected: userId={}, experimentKey={}, eventName={}, HTTP={}",

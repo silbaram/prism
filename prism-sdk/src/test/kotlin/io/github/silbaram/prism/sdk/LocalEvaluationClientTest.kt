@@ -115,6 +115,22 @@ class LocalEvaluationClientTest {
     }
 
     @Test
+    fun `cached configuration stops evaluation at its deadline during a config outage`() {
+        val end = java.time.Instant.now().plusSeconds(2)
+        config.set(ConfigResponse("a".repeat(64), listOf(ExperimentConfig("checkout", "ACTIVE",
+            listOf(VariantConfig("A", 100)), endsAt = end.toString()))))
+        create()
+        assertEquals("A", client.evaluate("u", "checkout").variant)
+        failConfig.set(true)
+        assertFalse(client.refreshConfig())
+        val requests = configRequests.get()
+        while (java.time.Instant.now() < end) Thread.sleep(20)
+        assertNull(client.assign("u", "checkout").variant)
+        assertEquals(0, client.pendingEventCount)
+        assertEquals(requests, configRequests.get())
+    }
+
+    @Test
     fun `lifetime dedup capacity rejects new identities without evicting prior exposures`() {
         create(PrismClientOptions(exposureDedupCapacity = 1, configSyncInterval = Duration.ofHours(1),
             eventFlushInterval = Duration.ofHours(1)))

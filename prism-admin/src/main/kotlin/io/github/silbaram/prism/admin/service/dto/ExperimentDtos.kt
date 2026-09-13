@@ -14,7 +14,11 @@ data class ExperimentCreateDto(
     val description: String,
     val goalEventName: String,
     val variants: List<VariantDto>,
-    val targetingRules: List<TargetingRuleDto> = emptyList()
+    val targetingRules: List<TargetingRuleDto> = emptyList(),
+    val trafficAllocation: Int = 100,
+    val startsAt: java.time.LocalDateTime? = null,
+    val endsAt: java.time.LocalDateTime? = null,
+    val guardrailEventNames: Set<String> = emptySet()
 )
 
 data class ExperimentUpdateDto(
@@ -23,5 +27,9 @@ data class ExperimentUpdateDto(
     val goalEventName: String,
     val status: io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus,
     val variants: List<VariantDto>,
-    val targetingRules: List<TargetingRuleDto> = emptyList()
+    val targetingRules: List<TargetingRuleDto> = emptyList(),
+    val trafficAllocation: Int = 100,
+    val startsAt: java.time.LocalDateTime? = null,
+    val endsAt: java.time.LocalDateTime? = null,
+    val guardrailEventNames: Set<String> = emptySet()
 )

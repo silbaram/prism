@@ -14,7 +14,8 @@ data class PrismClientOptions @JvmOverloads constructor(
     val eventQueueCapacity: Int = 10_000,
     val exposureCacheMaximumSize: Long = 10_000,
     val shutdownTimeout: Duration = Duration.ofSeconds(5),
-    val exposureDedupCapacity: Int = 100_000
+    val exposureDedupCapacity: Int = 100_000,
+    val apiKey: String? = null
 ) {
     init {
         require(configSyncInterval.toMillis() > 0 && eventFlushInterval.toMillis() > 0)
@@ -22,5 +23,9 @@ data class PrismClientOptions @JvmOverloads constructor(
         require(eventBatchSize in 1..1000 && eventQueueCapacity >= eventBatchSize)
         require(exposureCacheMaximumSize > 0)
         require(exposureDedupCapacity > 0)
+        require(apiKey == null || (apiKey.length in 32..512 && apiKey.all { it.code in 33..126 && it != ',' })) {
+            "API key must contain 32–512 printable non-comma characters"
+        }
     }
+    override fun toString() = "PrismClientOptions(evaluationMode=$evaluationMode, apiKey=<redacted>)"
 }

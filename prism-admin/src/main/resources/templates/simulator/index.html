@@ -10,7 +10,7 @@
         <!-- 시뮬레이터 폼 -->
         <div class="card shadow-sm mb-4">
             <div class="card-body">
-                <form method="post" action="/admin/simulator/test">
+                <form method="post" th:action="@{/admin/simulator/test}">
                     <div class="row g-3">
                         <div class="col-md-5">
                             <label class="form-label fw-bold">실험 선택</label>
@@ -41,6 +41,9 @@
         </div>
 
         <!-- 결과 표시 -->
+        <div th:if="${simulationCompleted == true and result == null}" class="alert alert-info">
+            <strong>미참여</strong>: 현재 시각이 실험 기간 밖이거나, 이 사용자가 참여 비율에 포함되지 않습니다.
+        </div>
         <div th:if="${result != null}" class="card shadow-sm border-success">
             <div class="card-header bg-success text-white">
                 <h5 class="mb-0">🎯 배정 결과</h5>
@@ -65,9 +68,11 @@
                 </div>
                 <div class="card-body">
                     <ul class="mb-0">
-                        <li>동일한 User ID는 항상 동일한 그룹에 배정됩니다.</li>
+                        <li>참여 비율과 현재 시각에 따른 실험 기간을 확인하며, 미참여일 수도 있습니다.</li>
+                        <li>참여 사용자는 동일한 User ID와 변형 설정에서 같은 그룹에 배정됩니다.</li>
                         <li>User ID를 변경하면 다른 그룹에 배정될 수 있습니다.</li>
-                        <li>배정은 <code>TrafficSplitter.assign()</code> 로직을 직접 사용하여 계산됩니다.</li>
+                        <li>초안도 미리 확인할 수 있습니다. 실험 상태와 사용자 속성에 따른 타겟팅은 이 화면에서 평가하지 않습니다.</li>
+                        <li>시뮬레이션은 노출·전환을 기록하지 않습니다.</li>
                         <li>각 Variant의 가중치(weight)에 따라 배정 확률이 결정됩니다.</li>
                     </ul>
                 </div>

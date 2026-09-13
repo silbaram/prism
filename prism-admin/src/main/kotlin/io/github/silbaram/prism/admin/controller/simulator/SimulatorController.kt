@@ -34,6 +34,7 @@ class SimulatorController(
         model.addAttribute("selectedExperimentId", experimentId)
         model.addAttribute("userId", userId)
         model.addAttribute("result", result.assignedVariant)
+        model.addAttribute("simulationCompleted", true)
 
         return "simulator/index"
     }

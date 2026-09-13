@@ -16,6 +16,7 @@ class ExperimentPersistenceAdapter(private val experiments: ExperimentRepository
         val entity = experiments.findByKey(experimentKey)
             ?.takeIf { it.status == ExperimentStatus.ACTIVE } ?: return null
         return Experiment(entity.key, entity.variants.map { Variant(it.name, it.weight) },
-            entity.targetingRules.map { TargetingRule(it.expression) })
+            entity.targetingRules.map { TargetingRule(it.expression) }, entity.trafficAllocation,
+            entity.startsAt?.toInstant(java.time.ZoneOffset.UTC), entity.endsAt?.toInstant(java.time.ZoneOffset.UTC))
     }
 }

@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+    <div class="card p-4">
+        <h2 th:text="${errorStatus}">요청 오류</h2>
+        <p th:text="${errorMessage}">요청을 처리할 수 없습니다.</p>
+        <a href="/admin/experiments">실험 목록으로 돌아가기</a>
+    </div>
+</th:block>
+</html>

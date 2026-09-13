@@ -64,6 +64,7 @@ class MySqlMetricIntegrityTest {
                                 "VALUES ('exposed-draft', 'A', 'u')")
                         }
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/030_experiment_reliability.sql"))
+                        ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/031_experiment_operations.sql"))
                         assertEquals(1L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft'"))
                         assertEquals(0L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft '"))
                         assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM experiments WHERE experiment_key IN ('paused', 'ended') AND configuration_locked = TRUE"))
@@ -89,11 +90,26 @@ class MySqlMetricIntegrityTest {
                     val conversions = context.getBean(ConversionLogRepository::class.java)
                     val changes = context.getBean(ExperimentChangeRepository::class.java)
                     val auditTime = Instant.parse("2026-09-13T02:03:04.123456Z")
+                    val scheduleStart = LocalDateTime.ofInstant(auditTime, java.time.ZoneOffset.UTC)
+                    val scheduled = experiments.save(ExperimentEntity(key = "native-schedule", description = "", goalEventName = "purchase",
+                        status = ExperimentStatus.SCHEDULED, configurationLocked = true, trafficAllocation = 5,
+                        startsAt = scheduleStart, endsAt = scheduleStart.plusHours(1),
+                        guardrailEventNames = linkedSetOf("error", "Error")))
+                    assertFalse(experiments.findScheduleCandidates(scheduleStart.minusSeconds(1)).contains(scheduled.id))
+                    assertTrue(experiments.findScheduleCandidates(scheduleStart).contains(scheduled.id))
+                    val tx = org.springframework.transaction.support.TransactionTemplate(context.getBean(org.springframework.transaction.PlatformTransactionManager::class.java))
+                    tx.executeWithoutResult {
+                        val stored = experiments.findById(scheduled.id!!).orElseThrow()
+                        assertEquals(5, stored.trafficAllocation)
+                        assertEquals(scheduleStart, stored.startsAt)
+                        assertEquals(setOf("error", "Error"), stored.guardrailEventNames)
+                    }
                     val change = changes.save(ExperimentChangeEntity(experimentId = 987654321L,
                         experimentKey = "audit-exact ", action = "UPDATE", beforeSnapshot = "{\"status\":\"DRAFT\"}",
                         afterSnapshot = "{\"status\":\"ACTIVE\"}",
-                        changedAt = LocalDateTime.ofInstant(auditTime, java.time.ZoneOffset.UTC)))
+                        changedAt = LocalDateTime.ofInstant(auditTime, java.time.ZoneOffset.UTC), actor = "operator"))
                     assertEquals(change.beforeSnapshot, changes.findById(change.id!!).orElseThrow().beforeSnapshot)
+                    assertEquals("operator", changes.findById(change.id!!).orElseThrow().actor)
                     // A snapshot contains all targeting rules; multiple valid TEXT rows can exceed one TEXT column.
                     val largeSnapshot = "{\"targetingRules\":[\"${"x".repeat(40_000)}\",\"${"y".repeat(40_000)}\"]}"
                     val largeChange = changes.save(ExperimentChangeEntity(experimentId = 987654321L,
@@ -102,6 +118,10 @@ class MySqlMetricIntegrityTest {
                     assertEquals(largeSnapshot, changes.findById(largeChange.id!!).orElseThrow().afterSnapshot)
                     DriverManager.getConnection(url, username, password).use { connection ->
                         connection.createStatement().use { statement ->
+                            statement.executeQuery("SELECT UNIX_TIMESTAMP(starts_at) FROM experiments WHERE id = ${scheduled.id}").use {
+                                assertTrue(it.next())
+                                assertEquals(java.math.BigDecimal("1789264984.123456"), it.getBigDecimal(1))
+                            }
                             statement.executeQuery("SELECT UNIX_TIMESTAMP(changed_at) FROM experiment_changes WHERE id = ${change.id}").use {
                                 assertTrue(it.next())
                                 assertEquals(java.math.BigDecimal("1789264984.123456"), it.getBigDecimal(1))
@@ -254,7 +274,7 @@ class MySqlMetricIntegrityTest {
             "variants" to setOf("name"), "log_impression" to setOf("experiment_key", "variant", "user_id", "event_id"),
             "log_conversion" to setOf("experiment_key", "variant", "user_id", "event_name", "event_id"),
             "event_receipts" to setOf("event_id", "payload_hash", "config_version"),
-            "experiment_changes" to setOf("experiment_key"))
+            "experiment_changes" to setOf("experiment_key"), "experiment_guardrails" to setOf("event_name"))
         val checked = mutableSetOf<Pair<String, String>>()
         connection.createStatement().use { sql ->
             sql.executeQuery("SELECT TABLE_NAME, COLUMN_NAME, COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()").use { rows ->

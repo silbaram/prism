@@ -17,13 +17,24 @@ public class SdkConsumer {
     public static void main(String[] args) throws Exception {
         var exposures = new AtomicInteger();
         var conversions = new AtomicInteger();
+        var apiKey = "consumer-test-api-key-0123456789abcdef";
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1/config", exchange -> respond(exchange, 200, """
+        server.createContext("/v1/config", exchange -> {
+            if (!apiKey.equals(exchange.getRequestHeaders().getFirst("X-Prism-Api-Key"))) {
+                respond(exchange, 401, "{}"); return;
+            }
+            respond(exchange, 200, """
             {"version":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
              "experiments":[{"key":"checkout","status":"ACTIVE","variants":[{"name":"A","weight":100}],
-             "targetingRules":["age >= 20 && country == 'KR'"]}]}
-            """));
+             "targetingRules":["age >= 20 && country == 'KR'"], "trafficAllocation":100},
+             {"key":"disabled","status":"ACTIVE","variants":[{"name":"A","weight":100}],"trafficAllocation":0},
+             {"key":"expired","status":"ACTIVE","variants":[{"name":"A","weight":100}],"endsAt":"2020-01-01T00:00:00Z"}]}
+            """);
+        });
         server.createContext("/v1/events", exchange -> {
+            if (!apiKey.equals(exchange.getRequestHeaders().getFirst("X-Prism-Api-Key"))) {
+                respond(exchange, 401, "{}"); return;
+            }
             var payload = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             exposures.addAndGet((int) Pattern.compile("\"type\":\"exposure\"").matcher(payload).results().count());
             conversions.addAndGet((int) Pattern.compile("\"type\":\"conversion\"").matcher(payload).results().count());
@@ -35,7 +46,7 @@ public class SdkConsumer {
             respond(exchange, 200, results.toString());
         });
         server.start();
-        try (var transport = new PrismClient("http://127.0.0.1:" + server.getAddress().getPort(), Duration.ofSeconds(5))) {
+        try (var transport = new PrismClient("http://127.0.0.1:" + server.getAddress().getPort(), apiKey, Duration.ofSeconds(5))) {
             var client = new PrismExperimentClient(transport);
             var assignment = client.assign("user-123", "checkout", Map.of("age", 25, "country", "KR"));
             if (!assignment.getAssigned() || !"A".equals(assignment.getVariant()) || assignment.getExposureEventId() == null) {
@@ -49,6 +60,9 @@ public class SdkConsumer {
             }
             if (exposures.get() != 1 || conversions.get() != 1) {
                 throw new AssertionError("Expected one exposure and one conversion");
+            }
+            if (client.assign("u", "disabled").getAssigned() || client.assign("u", "expired").getAssigned()) {
+                throw new AssertionError("Participation or period was not enforced by the published SDK");
             }
             System.out.println("Published SDK consumer passed: local evaluation, SpEL and batch events");
         } finally {

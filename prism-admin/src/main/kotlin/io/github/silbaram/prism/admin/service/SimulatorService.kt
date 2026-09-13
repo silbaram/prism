@@ -16,13 +16,17 @@ class SimulatorService(
 ) {
 
     fun simulateAssignment(experimentId: Long, userId: String): SimulationResult {
+        require(userId.isNotBlank() && userId.length <= 255)
         val experimentEntity = experimentRepository.findById(experimentId)
             .orElseThrow { ExperimentNotFoundException(experimentId) }
 
         val experiment = Experiment(
             key = experimentEntity.key,
             variants = experimentEntity.variants.map { Variant(it.name, it.weight) },
-            targetingRules = emptyList()
+            targetingRules = emptyList(),
+            trafficAllocation = experimentEntity.trafficAllocation,
+            startsAt = experimentEntity.startsAt?.toInstant(java.time.ZoneOffset.UTC),
+            endsAt = experimentEntity.endsAt?.toInstant(java.time.ZoneOffset.UTC)
         )
 
         val assignedVariant = TrafficSplitter.assign(experiment, userId, UserContext(emptyMap()))

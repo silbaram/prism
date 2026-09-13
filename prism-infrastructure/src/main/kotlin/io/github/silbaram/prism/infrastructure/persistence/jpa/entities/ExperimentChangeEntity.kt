@@ -22,5 +22,7 @@ class ExperimentChangeEntity(
     val afterSnapshot: String?,
     @Convert(converter = UtcLogTimestampConverter::class)
     @Column(name = "changed_at", nullable = false)
-    val changedAt: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC)
+    val changedAt: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC),
+    @Column(name = "actor", length = 255)
+    val actor: String? = null
 )

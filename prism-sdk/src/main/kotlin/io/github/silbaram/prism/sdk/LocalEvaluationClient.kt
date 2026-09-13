@@ -82,7 +82,8 @@ internal class LocalEvaluationClient(
                 require(definition.status == "ACTIVE") { "Invalid active experiment" }
                 validateExperimentIdentities(definition.key, definition.variants.map { it.name })
                 definition.key to Experiment(definition.key, definition.variants.map { Variant(it.name, it.weight) },
-                    definition.targetingRules.map { TargetingRule(it) })
+                    definition.targetingRules.map { TargetingRule(it) }, definition.trafficAllocation,
+                    definition.startsAt?.let(Instant::parse), definition.endsAt?.let(Instant::parse))
             }
             // Replace only after the entire response validates, including an empty active set.
             snapshot.set(Snapshot(config.version, response.headers().firstValue("ETag").orElse(null), definitions))
@@ -333,7 +334,7 @@ internal class LocalEvaluationClient(
     }
 
     /** Bound the entire response body, including a peer that sends headers but never finishes its body. */
-    private fun send(request: HttpRequest, budget: Duration = timeout) = sendWithTimeout(http, request, budget)
+    private fun send(request: HttpRequest, budget: Duration = timeout) = sendWithTimeout(http, request, budget, options.apiKey)
 
     private fun validIdentity(value: String) = value.isNotBlank() && value.length <= 255
     private fun failed(userId: String, experimentKey: String) = AssignmentResponse(userId, experimentKey, null,

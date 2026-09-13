@@ -28,7 +28,12 @@ docker-compose up -d
 cd ..
 ./gradlew clean build
 
-# 3) API/ADMIN 실행 (포트 조정은 각 모듈 application.yml 또는 환경변수)
+# 3) 인증 설정 (해시는 htpasswd -nBC 12 admin 등의 결과에서 사용자명:을 제외)
+export PRISM_API_KEYS="$(openssl rand -hex 32)"
+export PRISM_ADMIN_USERNAME=admin
+read -rsp 'Admin BCrypt hash: ' PRISM_ADMIN_PASSWORD_HASH
+export PRISM_ADMIN_PASSWORD_HASH
+# API/ADMIN은 위 환경변수를 설정한 별도 터미널에서 각각 실행
 ./gradlew :prism-api:bootRun
 ./gradlew :prism-admin:bootRun
 ```
@@ -46,6 +51,8 @@ cd ..
 - API 기본 포트: 8080 (`prism-api/src/main/resources/application.yml`)
 - 포트 변경: `SERVER_PORT=<포트>` 환경 변수로 오버라이드하거나 각 모듈 `application.yml` 수정
 - DB 연결: `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` 등 환경 변수로 설정 가능
+- 인증 필수: `PRISM_API_KEYS`, `PRISM_ADMIN_USERNAME`, `PRISM_ADMIN_PASSWORD_HASH` (BCrypt)
+- SDK 인증: 서버와 일치하는 `PRISM_CLIENT_API_KEY`를 client 옵션/스타터에 전달
 - 프로필: `SPRING_PROFILES_ACTIVE=local` 등으로 환경 분리
 
 ## 문서
@@ -54,6 +61,7 @@ cd ..
 - 지표 정의 및 업그레이드: [이슈 #27 구현 결정과 마이그레이션](docs/issue-27.md)
 - 로컬 평가와 배치 이벤트 업그레이드: [이슈 #28 Phase 1](docs/issue-28-phase-1.md)
 - 노출 중복 제거·SRM·설정 잠금·통계 검정: [이슈 #28 Phase 2](docs/issue-28-phase-2.md)
+- 참여 비율·기간·인증·가드레일: [이슈 #28 Phase 3](docs/issue-28-phase-3.md)
 
 ## 전환 지표
 

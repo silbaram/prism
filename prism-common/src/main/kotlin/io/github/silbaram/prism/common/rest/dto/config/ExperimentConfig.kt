@@ -7,7 +7,10 @@ data class ExperimentConfig(
     val status: String,
     val variants: List<VariantConfig>,
     val targetingRules: List<String> = emptyList(),
-    val goalEventName: String? = null
+    val goalEventName: String? = null,
+    val trafficAllocation: Int = 100,
+    val startsAt: String? = null,
+    val endsAt: String? = null
 )
 
 data class VariantConfig(val name: String, val weight: Int)

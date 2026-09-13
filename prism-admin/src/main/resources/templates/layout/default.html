@@ -11,6 +11,8 @@
         <div class="container">
             <a class="navbar-brand" href="/admin/experiments">🌈 Prism Admin</a>
             <div class="navbar-nav ms-auto">
+                <span class="navbar-text me-3" th:text="${currentUser}"></span>
+                <form th:action="@{/logout}" method="post"><button class="btn btn-outline-light btn-sm" type="submit">로그아웃</button></form>
                 <a class="nav-link" href="/admin/experiments">실험 목록</a>
                 <a class="nav-link" href="/admin/simulator">시뮬레이터</a>
             </div>

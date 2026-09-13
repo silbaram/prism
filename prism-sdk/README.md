@@ -13,7 +13,7 @@ implementation("io.github.silbaram.prism:prism-sdk:0.0.1-SNAPSHOT")
 ```kotlin
 import io.github.silbaram.prism.sdk.*
 
-val client = PrismClient("http://localhost:8080")
+val client = PrismClient("http://localhost:8080", apiKey = requireNotNull(System.getenv("PRISM_CLIENT_API_KEY")))
 val experiments = PrismExperimentClient(client)
 
 // 실험 경험을 제공하는 시점: 로컬 할당 + 노출 이벤트 큐 등록
@@ -56,6 +56,7 @@ LOCAL은 client 인스턴스 수명 동안 사용자×실험의 동일 변형 �
 val client = PrismClient(
     "http://localhost:8080",
     options = PrismClientOptions(
+        apiKey = requireNotNull(System.getenv("PRISM_CLIENT_API_KEY")),
         configSyncInterval = java.time.Duration.ofSeconds(60),
         initializationTimeout = java.time.Duration.ofSeconds(5),
         eventFlushInterval = java.time.Duration.ofSeconds(5),
@@ -115,3 +116,5 @@ Admin CVR은 **목표 이벤트 발생 고유 사용자 / 노출 고유 사용�
 ```
 
 `verifySdkPublication`은 common·core·SDK를 빌드 디렉터리의 임시 Maven 저장소에 게시하고, 독립 Java 프로젝트가 Gradle 모듈 메타데이터와 POM으로 각각 로컬 할당·SpEL 타기팅·이벤트 배치를 실행하는지 검증합니다. `check`와 `build`에 포함됩니다.
+
+Phase 3 서버는 모든 HTTP 경로에 API 키를 요구합니다. `PrismClientOptions.apiKey` 또는 Java의 `new PrismClient(url, apiKey)`를 사용하세요. 참여 비율과 UTC 기간은 동기화된 설정으로 로컬에서 검사하며, 알고 있는 종료 시각 이후에는 설정 서버 장애 중에도 할당하지 않습니다. 운영 기능 사용 전 모든 SDK를 갱신해야 합니다. [인증·배포 정책](../docs/issue-28-phase-3.md)을 참고하세요.

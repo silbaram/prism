@@ -21,6 +21,7 @@ import java.util.UUID
 import java.util.concurrent.*
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [
+    "prism.api.keys=prism-test-api-key-0123456789abcdef,prism-rotated-api-key-0123456789abcdef",
     "spring.datasource.url=jdbc:h2:mem:local-evaluation;MODE=MySQL;DB_CLOSE_DELAY=-1",
     "spring.datasource.driver-class-name=org.h2.Driver",
     "spring.datasource.username=sa", "spring.datasource.password=",
@@ -50,13 +51,13 @@ class LocalEvaluationIntegrationTest {
     @AfterEach fun closeHttp() { http.shutdownNow() }
 
     private fun getConfig(etag: String? = null): HttpResponse<String> {
-        val request = HttpRequest.newBuilder(URI.create("$baseUrl/v1/config")).GET()
+        val request = HttpRequest.newBuilder(URI.create("$baseUrl/v1/config")).header("X-Prism-Api-Key", "prism-test-api-key-0123456789abcdef").GET()
         etag?.let { request.header("If-None-Match", it) }
         return http.send(request.build(), HttpResponse.BodyHandlers.ofString())
     }
 
     private fun post(events: List<ClientEvent>): EventsResponse {
-        val request = HttpRequest.newBuilder(URI.create("$baseUrl/v1/events"))
+        val request = HttpRequest.newBuilder(URI.create("$baseUrl/v1/events")).header("X-Prism-Api-Key", "prism-test-api-key-0123456789abcdef")
             .header("Content-Type", "application/json").timeout(Duration.ofSeconds(10))
             .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(EventsRequest(events)))).build()
         val response = http.send(request, HttpResponse.BodyHandlers.ofString())
@@ -71,8 +72,54 @@ class LocalEvaluationIntegrationTest {
         "purchase", exposure.eventId)
 
     @Test
+    fun `all SDK routes require a valid header key and support overlapping rotation keys`() {
+        listOf("/v1/config", "/v1/assign?userId=u&experimentKey=checkout", "/v1/assignments?userId=u&experimentKey=checkout",
+            "/v1/events", "/v1/conversions").forEach { path ->
+            val request = HttpRequest.newBuilder(URI.create("$baseUrl$path"))
+            if (path in listOf("/v1/events", "/v1/conversions")) request.POST(HttpRequest.BodyPublishers.ofString("{}"))
+            assertEquals(401, http.send(request.build(), HttpResponse.BodyHandlers.ofString()).statusCode(), path)
+        }
+        val wrong = HttpRequest.newBuilder(URI.create("$baseUrl/v1/config")).header("X-Prism-Api-Key", "wrong").GET().build()
+        assertEquals(401, http.send(wrong, HttpResponse.BodyHandlers.ofString()).statusCode())
+        val rotated = HttpRequest.newBuilder(URI.create("$baseUrl/v1/config"))
+            .header("X-Prism-Api-Key", "prism-rotated-api-key-0123456789abcdef").GET().build()
+        assertEquals(200, http.send(rotated, HttpResponse.BodyHandlers.ofString()).statusCode())
+        val duplicate = HttpRequest.newBuilder(URI.create("$baseUrl/v1/config"))
+            .header("X-Prism-Api-Key", "prism-test-api-key-0123456789abcdef")
+            .header("X-Prism-Api-Key", "prism-rotated-api-key-0123456789abcdef").GET().build()
+        assertEquals(401, http.send(duplicate, HttpResponse.BodyHandlers.ofString()).statusCode())
+        assertEquals(401, http.send(HttpRequest.newBuilder(URI.create("$baseUrl/v1/config")).GET().build(),
+            HttpResponse.BodyHandlers.ofString()).statusCode())
+        assertEquals(0, impressions.count())
+        assertEquals(0, conversions.count())
+    }
+
+    @Test
+    fun `periods and participation propagate to local and remote assignment without recording nonparticipants`() {
+        val experiment = experiments.findByKey("checkout")!!
+        experiment.trafficAllocation = 0
+        experiments.save(experiment)
+        val configuration = mapper.readValue<ConfigResponse>(getConfig().body())
+        assertEquals(0, configuration.experiments.single().trafficAllocation)
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef")).use { local ->
+            PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef", evaluationMode = EvaluationMode.REMOTE)).use { remote ->
+                assertNull(local.assign("u", "checkout", mapOf("age" to 25, "country" to "KR")).variant)
+                assertNull(remote.assign("u", "checkout").variant)
+            }
+        }
+        experiment.trafficAllocation = 100
+        experiment.endsAt = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1)
+        experiments.save(experiment)
+        assertNotNull(mapper.readValue<ConfigResponse>(getConfig().body()).experiments.single().endsAt)
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef")).use { client ->
+            assertNull(client.assign("u", "checkout", mapOf("age" to 25, "country" to "KR")).variant)
+        }
+        assertEquals(0, impressions.count())
+    }
+
+    @Test
     fun `config exports only active experiments with stable variant order and content etags`() {
-        listOf(ExperimentStatus.DRAFT, ExperimentStatus.PAUSED, ExperimentStatus.ENDED).forEach { status ->
+        ExperimentStatus.entries.filter { it != ExperimentStatus.ACTIVE }.forEach { status ->
             experiments.save(ExperimentEntity(key = status.name, description = "", status = status).apply {
                 addVariant(VariantEntity(name = "B", weight = 100))
             })
@@ -102,7 +149,7 @@ class LocalEvaluationIntegrationTest {
             addVariant(VariantEntity(name = "T", weight = 100))
             addTargetingRule(TargetingRuleEntity(expression = "age >= 20 && country == 'KR'"))
         })
-        PrismClient(baseUrl, options = PrismClientOptions(configSyncInterval = Duration.ofHours(1),
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef", configSyncInterval = Duration.ofHours(1),
             eventFlushInterval = Duration.ofHours(1))).use { local ->
             assertNull(local.evaluate("young", "targeted", mapOf("age" to 10, "country" to "KR")).variant)
             val target = local.evaluate("adult", "targeted", mapOf("age" to 25, "country" to "KR"))
@@ -128,11 +175,11 @@ class LocalEvaluationIntegrationTest {
 
     @Test
     fun `a different SDK instance looks up the committed exposure without assigning again`() {
-        PrismClient(baseUrl).use { first ->
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef")).use { first ->
             first.assign("cross-instance", "checkout")
             assertTrue(first.flush())
         }
-        PrismClient(baseUrl).use { second ->
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef")).use { second ->
             assertFalse(second.trackConversion("unexposed", "checkout", "purchase"))
             assertTrue(PrismExperimentClient(second).trackIfAssigned("cross-instance", "checkout", "purchase"))
             assertTrue(second.flush())
@@ -144,8 +191,8 @@ class LocalEvaluationIntegrationTest {
 
     @Test
     fun `local and legacy remote assignment select identical variants`() {
-        PrismClient(baseUrl).use { local ->
-            PrismClient(baseUrl, options = PrismClientOptions(evaluationMode = EvaluationMode.REMOTE)).use { remote ->
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef")).use { local ->
+            PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef", evaluationMode = EvaluationMode.REMOTE)).use { remote ->
                 repeat(30) { index ->
                     assertEquals(remote.assign("u-$index", "checkout").variant, local.evaluate("u-$index", "checkout").variant)
                 }
@@ -209,7 +256,7 @@ class LocalEvaluationIntegrationTest {
         })
         val response = getConfig()
         assertEquals(listOf("checkout"), mapper.readValue<ConfigResponse>(response.body()).experiments.map { it.key })
-        PrismClient(baseUrl).use { client ->
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef")).use { client ->
             assertNotNull(client.evaluate("u", "checkout").variant)
             assertNull(client.evaluate("u", "invalid").variant)
             val healthy = experiments.findByKey("checkout")!!
@@ -230,28 +277,28 @@ class LocalEvaluationIntegrationTest {
         val newer = exposure(variant = "Z").copy(timestamp = "2026-09-13T00:00:00.900000Z")
         assertEquals(EventStatus.ACCEPTED, post(listOf(newer)).results.single().status)
         assertEquals(EventStatus.ACCEPTED, post(listOf(older)).results.single().status)
-        PrismClient(baseUrl).use { client ->
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef")).use { client ->
             assertTrue(client.trackConversion("u", "checkout", "purchase"))
             assertTrue(client.flush())
             assertEquals(newer.eventId, impressions.findById(conversions.findAll().single().impressionId!!).orElseThrow().eventId)
         }
         // Legacy lookup intentionally retains its recorded-order contract.
-        PrismClient(baseUrl, options = PrismClientOptions(evaluationMode = EvaluationMode.REMOTE)).use { client ->
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef", evaluationMode = EvaluationMode.REMOTE)).use { client ->
             assertEquals("A", client.getAssignment("u", "checkout").variant)
         }
         val tieHigh = exposure(user = "tie", variant = "Z", id = "ffffffff-ffff-ffff-ffff-ffffffffffff")
             .copy(timestamp = "2026-09-13T00:00:01.123456Z")
         val tieLow = tieHigh.copy(eventId = "00000000-0000-0000-0000-000000000001", variant = "A")
         post(listOf(tieHigh, tieLow))
-        PrismClient(baseUrl).use { client ->
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef")).use { client ->
             assertEquals(tieHigh.eventId, client.getAssignment("tie", "checkout").exposureEventId)
         }
     }
 
     @Test
     fun `explicit SDK exposure reference crosses instances before the exposure is delivered`() {
-        PrismClient(baseUrl, options = PrismClientOptions(eventFlushInterval = Duration.ofHours(1))).use { source ->
-            PrismClient(baseUrl, options = PrismClientOptions(eventFlushInterval = Duration.ofHours(1))).use { destination ->
+        PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef", eventFlushInterval = Duration.ofHours(1))).use { source ->
+            PrismClient(baseUrl, options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef", eventFlushInterval = Duration.ofHours(1))).use { destination ->
                 val assignment = source.assign("handoff", "checkout")
                 assertNotNull(assignment.exposureEventId)
                 assertTrue(destination.trackConversion(assignment, "purchase"))
