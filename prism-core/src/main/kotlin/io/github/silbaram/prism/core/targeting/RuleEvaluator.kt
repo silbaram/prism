@@ -57,6 +57,13 @@ object RuleEvaluator {
      */
     private val parser = SpelExpressionParser()
 
+    /** Checks syntax without executing administrator-supplied expressions. */
+    fun validateSyntax(expression: String) {
+        require(expression.length <= 10_000) { "타겟팅 규칙은 10,000자 이하여야 합니다." }
+        try { if (expression.isNotBlank()) parser.parseExpression(expression) }
+        catch (_: org.springframework.expression.ParseException) { throw IllegalArgumentException("타겟팅 규칙 문법을 확인하세요.") }
+    }
+
     /**
      * 타겟팅 규칙을 평가하여 사용자가 조건을 만족하는지 확인합니다.
      *

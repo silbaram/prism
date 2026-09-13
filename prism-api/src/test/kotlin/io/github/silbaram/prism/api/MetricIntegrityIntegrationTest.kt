@@ -3,6 +3,8 @@ package io.github.silbaram.prism.api
 import io.github.silbaram.prism.common.rest.ResponseCode
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.*
 import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.*
+import io.github.silbaram.prism.sdk.PrismClientOptions
+import io.github.silbaram.prism.sdk.EvaluationMode
 import io.github.silbaram.prism.sdk.PrismClient
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -13,6 +15,7 @@ import java.time.LocalDateTime
 import org.junit.jupiter.api.Assertions.*
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [
+    "prism.api.keys=prism-test-api-key-0123456789abcdef",
     "spring.datasource.url=jdbc:h2:mem:metrics;MODE=MySQL;DB_CLOSE_DELAY=-1",
     "spring.datasource.driver-class-name=org.h2.Driver",
     "spring.datasource.username=sa", "spring.datasource.password=",
@@ -31,11 +34,14 @@ class MetricIntegrityIntegrationTest {
         conversions.deleteAll()
         impressions.deleteAll()
         experiments.deleteAll()
-        client = PrismClient("http://localhost:${environment.getProperty("local.server.port")}")
+        client = PrismClient("http://localhost:${environment.getProperty("local.server.port")}", options = PrismClientOptions(apiKey = "prism-test-api-key-0123456789abcdef", evaluationMode = EvaluationMode.REMOTE))
         val experiment = ExperimentEntity(key = "checkout", description = "test", goalEventName = "purchase", status = ExperimentStatus.ACTIVE)
         experiment.addVariant(VariantEntity(name = "A", weight = 100))
         experiments.save(experiment)
     }
+
+    @org.junit.jupiter.api.AfterEach
+    fun closeClient() { client.close() }
 
     @Test
     fun `fresh assignment commits exposure before immediate conversion and duplicate events count once`() {

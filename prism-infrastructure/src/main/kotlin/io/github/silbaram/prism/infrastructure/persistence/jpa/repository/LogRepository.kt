@@ -8,11 +8,18 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface ImpressionLogRepository : JpaRepository<ImpressionLogEntity, Long> {
+    fun existsByExperimentKey(experimentKey: String): Boolean
+    @Query("SELECT COUNT(DISTINCT i.userId) FROM ImpressionLogEntity i WHERE i.experimentKey = :experimentKey")
+    fun countExposedUsers(experimentKey: String): Long
+    fun findByEventId(eventId: String): ImpressionLogEntity?
     @Query("SELECT i.variant, COUNT(DISTINCT i.userId) FROM ImpressionLogEntity i WHERE i.experimentKey = :experimentKey GROUP BY i.variant")
     fun countImpressionsByVariant(experimentKey: String): List<Array<Any>>
 
     // Database insertion order is independent of API server clocks.
     fun findFirstByUserIdAndExperimentKeyOrderByIdDesc(userId: String, experimentKey: String): ImpressionLogEntity?
+
+    // Buffered batches can arrive out of order. Event ID breaks timestamp ties independently of arrival order.
+    fun findFirstByUserIdAndExperimentKeyOrderByTimestampDescEventIdDescIdDesc(userId: String, experimentKey: String): ImpressionLogEntity?
 }
 
 // New events reference the exposure validated when the event was accepted, regardless of clock skew.
@@ -28,6 +35,11 @@ private const val ELIGIBLE_CONVERSION = """
 
 @Repository
 interface ConversionLogRepository : JpaRepository<ConversionLogEntity, Long> {
+    @Query("SELECT COUNT(c) FROM ConversionLogEntity c WHERE " + ELIGIBLE_CONVERSION +
+        " AND c.userId = :userId AND c.variant = :variant AND c.eventName = :eventName AND c.timestamp >= :start AND c.timestamp < :end")
+    fun countWindowConversions(experimentKey: String, userId: String, variant: String, eventName: String,
+        start: java.time.LocalDateTime, end: java.time.LocalDateTime): Long
+
     @Query("SELECT c.variant, COUNT(DISTINCT c.userId) FROM ConversionLogEntity c WHERE " +
         ELIGIBLE_CONVERSION + " AND c.eventName = :eventName GROUP BY c.variant")
     fun countConversionsByVariant(experimentKey: String, eventName: String): List<Array<Any>>

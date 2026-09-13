@@ -2,6 +2,7 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <th:block th:replace="~{layout/default :: layout(~{::div})}">
     <div>
+        <a class="btn btn-outline-primary mb-3" th:href="@{/admin/experiments/{id}/analysis(id=${experiment.id})}">고급 분석</a>
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2>실험 상세 정보</h2>
             <a href="/admin/experiments" class="btn btn-outline-secondary">목록으로</a>
@@ -32,6 +33,7 @@
                             <p class="mb-0">
                                 <span th:switch="${experiment.status?.name()}">
                                     <span th:case="'DRAFT'" class="badge bg-secondary">작성중</span>
+                                    <span th:case="'SCHEDULED'" class="badge bg-info">예약</span>
                                     <span th:case="'ACTIVE'" class="badge bg-success">진행중</span>
                                     <span th:case="'PAUSED'" class="badge bg-warning">일시중지</span>
                                     <span th:case="'ENDED'" class="badge bg-dark">종료</span>
@@ -39,6 +41,13 @@
                             </p>
                         </div>
                         <div class="mb-3">
+                            <p th:if="${experiment.layerKey != null}">레이어: <strong th:text="${experiment.layerKey}"></strong>
+                                (<span th:text="${experiment.layerStart}"></span> 이상, <span th:text="${experiment.layerEnd}"></span> 미만)</p>
+                            <p>최초 배정 유지: <strong th:text="${experiment.stickyBucketing ? '사용' : '미사용'}"></strong></p>
+                            <p>참여 비율: <strong th:text="${experiment.trafficAllocation + '%'}"></strong></p>
+                            <p>시작 (UTC): <span th:text="${experiment.startsAt ?: '미지정'}"></span></p>
+                            <p>종료 (UTC): <span th:text="${experiment.endsAt ?: '미지정'}"></span></p>
+                            <p>가드레일: <span th:text="${#strings.listJoin(experiment.guardrailEventNames, ', ')}"></span></p>
                             <label class="fw-bold text-secondary">Variants</label>
                             <ul class="list-group">
                                 <li class="list-group-item d-flex justify-content-between align-items-center"
@@ -69,10 +78,16 @@
                     <div class="card-body">
                         <p class="mb-2">목표 이벤트: <strong th:text="${stats.goalEventName ?: '미설정'}">purchase</strong></p>
                         <div th:if="${stats.goalEventName == null}" class="alert alert-warning">
-                            실험 수정 화면에서 목표 이벤트를 지정하면 CVR을 확인할 수 있습니다.
+                            목표 이벤트가 없어 CVR을 표시하지 않습니다. 미시작 실험은 목표를 지정하고, 이미 시작한 실험은 새 실험을 생성하세요.
                         </div>
                         <p class="text-muted small">CVR = 목표 이벤트 발생 사용자 / 노출 사용자. 사용자별로 각 변형에서 한 번씩 집계합니다.
-                            95% 신뢰구간은 Wilson 방식이며, 그룹 간 유의성이나 승자를 판정하지 않습니다.</p>
+                            95% 신뢰구간은 각 변형의 Wilson 구간입니다. 자동 승자 판정은 제공하지 않습니다.</p>
+                        <div class="alert" th:classappend="${stats.srm.status.name() == 'PASS' ? 'alert-success' : 'alert-warning'}">
+                            <strong th:text="${'SRM · ' + stats.srm.status}">SRM</strong>
+                            <p class="mb-1" th:text="${stats.srm.message}"></p>
+                            <small th:if="${stats.srm.pValue != null}"
+                                   th:text="${'p = ' + stats.srm.pValue + ' · 경고 기준 p &lt; ' + stats.srm.threshold}"></small>
+                        </div>
                         <table class="table table-hover mb-4">
                             <thead class="table-light">
                                 <tr>
@@ -100,9 +115,31 @@
                                 </tr>
                             </tbody>
                         </table>
+                        <div class="border rounded p-3 mb-3">
+                            <h6>그룹 간 전환율 검정</h6>
+                            <p th:text="${stats.comparison.message}"></p>
+                            <p th:if="${stats.comparison.pValue != null}"
+                               th:text="${'카이제곱 = ' + #numbers.formatDecimal(stats.comparison.statistic, 1, 4) +
+                               ' · 자유도 = ' + stats.comparison.degreesOfFreedom + ' · p = ' + stats.comparison.pValue}"></p>
+                            <p class="small text-muted mb-0">유의수준 0.05의 단일 전체 검정입니다. 사전에 정한 종료 시점과 전환 관측 기간을 지켜야 합니다.
+                                결과를 보며 조기 종료하면 오류율이 보장되지 않습니다. 반복 관측·다중 비교 보정과 개별 승자 판정은 제공하지 않습니다.</p>
+                        </div>
                         <a th:href="@{/admin/experiments/{id}/events(id=${experiment.id})}" class="btn btn-outline-secondary">이벤트별 집계 보기</a>
                     </div>
                 </div>
+            </div>
+        </div>
+        <div class="card mt-4">
+            <div class="card-header">설정 변경 이력 · 최근 50건 (UTC)</div>
+            <div class="card-body">
+                <p class="small text-muted">최초 시작 이후 실험 키, 목표 이벤트, 변형과 타겟팅은 잠깁니다.
+                    인증된 변경자와 자동 스케줄러를 구분해 기록합니다. 기능 도입 전 변경은 이력에 포함되지 않습니다.</p>
+                <p th:if="${changes.empty}" class="text-muted">기록된 변경 이력이 없습니다.</p>
+                <details th:each="change : ${changes}" class="mb-2">
+                    <summary th:text="${#temporals.format(change.changedAt, 'yyyy-MM-dd HH:mm:ss') + ' UTC · ' + change.action + ' · ' + (change.actor ?: '이전 기록')}"></summary>
+                    <p class="mb-1">변경 전</p><pre class="text-wrap" th:text="${change.beforeSnapshot ?: '—'}"></pre>
+                    <p class="mb-1">변경 후</p><pre class="text-wrap" th:text="${change.afterSnapshot ?: '—'}"></pre>
+                </details>
             </div>
         </div>
     </div>

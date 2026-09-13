@@ -2,6 +2,7 @@ package io.github.silbaram.prism.infrastructure.persistence.jpa.entities
 
 import jakarta.persistence.*
 import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 @Entity
 @Table(name = "log_impression")
@@ -20,7 +21,11 @@ class ImpressionLogEntity(
     val userId: String,
 
     @Column(nullable = false)
-    val timestamp: LocalDateTime = LocalDateTime.now()
+    @Convert(converter = UtcLogTimestampConverter::class)
+    val timestamp: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC),
+
+    @Column(name = "event_id", length = 36, unique = true)
+    val eventId: String? = null
 )
 
 @Entity
@@ -47,5 +52,9 @@ class ConversionLogEntity(
     val impressionId: Long? = null,
 
     @Column(nullable = false)
-    val timestamp: LocalDateTime = LocalDateTime.now()
+    @Convert(converter = UtcLogTimestampConverter::class)
+    val timestamp: LocalDateTime = LocalDateTime.now(ZoneOffset.UTC),
+
+    @Column(name = "event_id", length = 36, unique = true)
+    val eventId: String? = null
 )

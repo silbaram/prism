@@ -1,0 +1,81 @@
+package io.github.silbaram.prism.api.config
+
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.github.benmanes.caffeine.cache.Caffeine
+import io.github.silbaram.prism.common.rest.dto.config.*
+import io.github.silbaram.prism.core.model.validateExperimentIdentities
+import io.github.silbaram.prism.core.model.validateVariantWeights
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.PopulationPolicyRepository
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.layerAllocation
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.ResponseEntity
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.context.request.WebRequest
+import java.security.MessageDigest
+import java.time.Duration
+import org.slf4j.LoggerFactory
+
+@Service
+class ConfigSnapshotLoader(private val experiments: ExperimentRepository, private val policies: PopulationPolicyRepository,
+                           private val changes: io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentChangeRepository) {
+    private val logger = LoggerFactory.getLogger(javaClass)
+    @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+    fun load(): ConfigResponse {
+        val revision = changes.latestRevision()
+        val storedPolicy = policies.findById(1).orElseThrow()
+        val policy = storedPolicy.toDomain()
+        val holdout = HoldoutConfig(policy.key, policy.basisPoints, storedPolicy.holdoutBasisPoints != null)
+        val definitions = experiments.findAllByStatus(ExperimentStatus.ACTIVE).sortedBy { it.key }.mapNotNull { entity ->
+            // Historical rows can predate admin validation. Quarantine only the invalid experiment.
+            try {
+                validateExperimentIdentities(entity.key, entity.variants.map { it.name })
+                validateVariantWeights(entity.variants.map { it.weight })
+                require(entity.trafficAllocation in 0..100)
+                require(entity.startsAt == null || entity.endsAt == null || entity.startsAt!! < entity.endsAt!!)
+                entity.layerAllocation()
+            } catch (exception: IllegalArgumentException) {
+                logger.warn("Excluding invalid active experiment: id={}, reason={}", entity.id, exception.message)
+                return@mapNotNull null
+            }
+            ExperimentConfig(entity.key, entity.status.name,
+                entity.variants.map { VariantConfig(it.name, it.weight) },
+                entity.targetingRules.map { it.expression }, entity.goalEventName, entity.trafficAllocation,
+                entity.startsAt?.toInstant(java.time.ZoneOffset.UTC)?.toString(),
+                entity.endsAt?.toInstant(java.time.ZoneOffset.UTC)?.toString(),
+                entity.layerAllocation()?.let { LayerConfig(it.key, it.start, it.end) }, entity.stickyBucketing)
+        }
+        val hash = MessageDigest.getInstance("SHA-256")
+            .digest(jacksonObjectMapper().writeValueAsBytes(listOf(holdout, definitions)))
+            .joinToString("") { "%02x".format(it) }
+        return ConfigResponse(hash, definitions, holdout, revision)
+    }
+}
+
+@Service
+class ConfigService(
+    private val loader: ConfigSnapshotLoader,
+    @Value("\${prism.config.cache-ttl:PT5S}") ttl: Duration
+) {
+    init { require(!ttl.isNegative && !ttl.isZero) { "Config cache TTL must be positive" } }
+    private val snapshots = Caffeine.newBuilder().maximumSize(1).expireAfterWrite(ttl)
+        .build<String, ConfigResponse>()
+
+    fun snapshot(): ConfigResponse = requireNotNull(snapshots.get("active") { loader.load() })
+    fun invalidate() = snapshots.invalidateAll()
+}
+
+@RestController
+class ConfigController(private val configs: ConfigService) {
+    @GetMapping("/v1/config")
+    fun config(request: WebRequest): ResponseEntity<ConfigResponse> {
+        val snapshot = configs.snapshot()
+        val etag = "\"${snapshot.version}\""
+        if (request.checkNotModified(etag)) return ResponseEntity.status(304).eTag(etag).build()
+        return ResponseEntity.ok().eTag(etag).header("Cache-Control", "no-cache").body(snapshot)
+    }
+}

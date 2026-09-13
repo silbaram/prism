@@ -5,7 +5,7 @@ val verificationRepository = layout.buildDirectory.dir("publication-test/reposit
 val cleanVerificationRepository = tasks.register<Delete>("cleanSdkVerificationRepository") {
     delete(verificationRepository)
 }
-val producers = listOf(project(":prism-common"), project(":prism-sdk"))
+val producers = listOf(project(":prism-common"), project(":prism-core"), project(":prism-sdk"))
 val publishTaskName = "publishMavenPublicationToSdkVerificationRepository"
 producers.forEach { producer ->
     producer.plugins.withId("maven-publish") {

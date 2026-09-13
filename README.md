@@ -1,11 +1,11 @@
 # Prism (A/B Testing System)
 
-Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 고성능 Serving API로 구성된 확장 가능한 A/B 테스트 플랫폼입니다. SpEL 타기팅, MurmurHash 기반 분배, 실패 안전(Fail-safe) SDK를 제공합니다.
+Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 설정·이벤트 API로 구성된 A/B 테스트 플랫폼입니다. SDK는 동기화한 설정으로 로컬 SpEL 타기팅과 MurmurHash 분배를 실행하고, 노출·전환을 배치 전송합니다.
 
 ## 주요 특징
 - **무상태 트래픽 분배**: 고성능 API로 사용자별 변형(variant) 할당
 - **실험 관리/Admin**: 목표 이벤트 설정·사용자 단위 CVR·95% 신뢰구간 제공
-- **Fail-safe SDK**: 네트워크/서버 장애 시에도 기본값으로 안전하게 동작
+- **Fail-safe SDK**: 설정 동기화 장애 시 마지막 정상 설정으로 평가하며, 설정이 없으면 기본 동작으로 폴백
 - **Spring 통합**: `@PrismExperiment` 어노테이션과 안전한 전환 추적 래퍼 제공
 
 ## 프로젝트 구조
@@ -28,7 +28,12 @@ docker-compose up -d
 cd ..
 ./gradlew clean build
 
-# 3) API/ADMIN 실행 (포트 조정은 각 모듈 application.yml 또는 환경변수)
+# 3) 인증 설정 (해시는 htpasswd -nBC 12 admin 등의 결과에서 사용자명:을 제외)
+export PRISM_API_KEYS="$(openssl rand -hex 32)"
+export PRISM_ADMIN_USERNAME=admin
+read -rsp 'Admin BCrypt hash: ' PRISM_ADMIN_PASSWORD_HASH
+export PRISM_ADMIN_PASSWORD_HASH
+# API/ADMIN은 위 환경변수를 설정한 별도 터미널에서 각각 실행
 ./gradlew :prism-api:bootRun
 ./gradlew :prism-admin:bootRun
 ```
@@ -46,12 +51,19 @@ cd ..
 - API 기본 포트: 8080 (`prism-api/src/main/resources/application.yml`)
 - 포트 변경: `SERVER_PORT=<포트>` 환경 변수로 오버라이드하거나 각 모듈 `application.yml` 수정
 - DB 연결: `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` 등 환경 변수로 설정 가능
+- 인증 필수: `PRISM_API_KEYS`, `PRISM_ADMIN_USERNAME`, `PRISM_ADMIN_PASSWORD_HASH` (BCrypt)
+- SDK 인증: 서버와 일치하는 `PRISM_CLIENT_API_KEY`를 client 옵션/스타터에 전달
 - 프로필: `SPRING_PROFILES_ACTIVE=local` 등으로 환경 분리
 
 ## 문서
 - SDK 상세 사용법: `prism-sdk/README.md`
 - Spring Boot 통합 가이드: `prism-spring-boot-starter/README.md`
 - 지표 정의 및 업그레이드: [이슈 #27 구현 결정과 마이그레이션](docs/issue-27.md)
+- 로컬 평가와 배치 이벤트 업그레이드: [이슈 #28 Phase 1](docs/issue-28-phase-1.md)
+- 노출 중복 제거·SRM·설정 잠금·통계 검정: [이슈 #28 Phase 2](docs/issue-28-phase-2.md)
+- 참여 비율·기간·인증·가드레일: [이슈 #28 Phase 3](docs/issue-28-phase-3.md)
+- 레이어·홀드아웃·배정 유지·Kafka·SSE: [이슈 #28 Phase 4](docs/issue-28-phase-4.md)
+- 순차 검정·Bayesian·CUPED·세그먼트 분석: [이슈 #28 Phase 5](docs/issue-28-phase-5.md)
 
 ## 전환 지표
 
@@ -59,4 +71,6 @@ cd ..
 반복 이벤트는 사용자별 한 번만 집계하며, 보조/실패 이벤트는 별도 화면에서 확인합니다.
 선행 노출 없는 전환은 서버에서 `IMPRESSION_NOT_FOUND (9100)`로 거부합니다.
 자동 승자 표기 대신 표본 수와 Wilson 95% 신뢰구간을 표시합니다.
-기존 실험은 목표 이벤트를 직접 지정하기 전까지 CVR을 표시하지 않습니다.
+SRM과 변형 간 중복 노출을 검사하며, 검사를 통과한 종료 실험에 단일 전체 전환율 검정을 제공합니다.
+실험 시작 이후에는 배정 설정과 목표 이벤트를 잠그고 변경 이력을 보존합니다.
+목표 미설정 기존 실험은 CVR을 표시하지 않습니다. 이미 시작한 실험의 목표가 없으면 새 실험을 생성하세요.

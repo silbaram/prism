@@ -24,15 +24,36 @@ class ExperimentEntity(
     var status: ExperimentStatus = ExperimentStatus.DRAFT,
 
     @OneToMany(mappedBy = "experiment", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("id ASC")
     var variants: MutableList<VariantEntity> = mutableListOf(),
 
     @OneToMany(mappedBy = "experiment", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("id ASC")
     var targetingRules: MutableList<TargetingRuleEntity> = mutableListOf(),
 
     @Column(nullable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),
 
-    var updatedAt: LocalDateTime = LocalDateTime.now()
+    var updatedAt: LocalDateTime = LocalDateTime.now(),
+
+    @Column(name = "configuration_locked", nullable = false)
+    var configurationLocked: Boolean = false,
+    @Column(name = "traffic_allocation", nullable = false)
+    var trafficAllocation: Int = 100,
+    @Convert(converter = UtcLogTimestampConverter::class)
+    @Column(name = "starts_at")
+    var startsAt: LocalDateTime? = null,
+    @Convert(converter = UtcLogTimestampConverter::class)
+    @Column(name = "ends_at")
+    var endsAt: LocalDateTime? = null,
+    @ElementCollection
+    @CollectionTable(name = "experiment_guardrails", joinColumns = [JoinColumn(name = "experiment_id")])
+    @Column(name = "event_name", nullable = false)
+    var guardrailEventNames: MutableSet<String> = linkedSetOf(),
+    @Column(name = "layer_key") var layerKey: String? = null,
+    @Column(name = "layer_start") var layerStart: Int? = null,
+    @Column(name = "layer_end") var layerEnd: Int? = null,
+    @Column(name = "sticky_bucketing", nullable = false) var stickyBucketing: Boolean = false
 ) {
     fun addVariant(variant: VariantEntity) {
         variants.add(variant)
@@ -46,5 +67,5 @@ class ExperimentEntity(
 }
 
 enum class ExperimentStatus {
-    DRAFT, ACTIVE, PAUSED, ENDED
+    DRAFT, SCHEDULED, ACTIVE, PAUSED, ENDED
 }

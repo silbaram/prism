@@ -72,9 +72,15 @@ object TrafficSplitter {
     fun assign(
         experiment: Experiment,
         userId: String,
-        context: UserContext = UserContext(emptyMap())
+        context: UserContext = UserContext(emptyMap()),
+        now: java.time.Instant = java.time.Instant.now()
     ): Variant? {
         require(experiment.variants.isNotEmpty()) { "Experiment must have at least one variant" }
+        if (experiment.startsAt?.let { now < it } == true || experiment.endsAt?.let { now >= it } == true) return null
+        if (experiment.holdout.excludes(userId) || experiment.layer?.includes(userId) == false) return null
+        // An independent hash space preserves variant assignments as participation increases.
+        val participation = abs(MurmurHash.hash32("prism:allocation:${experiment.key.length}:${experiment.key}:$userId").toLong()) % 100
+        if (participation >= experiment.trafficAllocation) return null
 
         // 1단계: 타겟팅 규칙 검증
         // 실험에 타겟팅 규칙이 있다면, 모든 규칙을 만족하는지 확인
@@ -118,8 +124,8 @@ object TrafficSplitter {
         val hash = MurmurHash.hash32(hashKey)
 
         // 해시값을 0-99 범위로 정규화
-        // abs()를 사용하여 음수 해시값을 양수로 변환
-        return abs(hash) % BUCKET_COUNT
+        // Widen before abs: abs(Int.MIN_VALUE) is still negative and could select a 0% variant.
+        return (abs(hash.toLong()) % BUCKET_COUNT).toInt()
     }
 
     /**

@@ -15,7 +15,10 @@ class AnalyticsServiceTest : FunSpec({
     val conversions = mockk<ConversionLogRepository>()
     val experiments = mockk<ExperimentRepository>()
     val service = AnalyticsService(impressions, conversions, experiments)
-    beforeTest { clearMocks(impressions, conversions, experiments) }
+    beforeTest {
+        clearMocks(impressions, conversions, experiments)
+        every { impressions.countExposedUsers(any()) } returns 0L
+    }
 
     test("only the configured goal determines CVR and every configured variant remains visible") {
         val experiment = ExperimentEntity(key = "e", description = "", goalEventName = "purchase")

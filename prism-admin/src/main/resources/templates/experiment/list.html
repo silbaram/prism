@@ -4,7 +4,7 @@
     <div>
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2>실험 목록</h2>
-            <a href="/admin/experiments/new" class="btn btn-primary">새 실험 만들기</a>
+            <a th:if="${canManageExperiments}" href="/admin/experiments/new" class="btn btn-primary">새 실험 만들기</a>
         </div>
 
         <!-- 검색 및 필터 -->
@@ -22,6 +22,7 @@
                         <select name="status" class="form-select">
                             <option value="">전체</option>
                             <option value="DRAFT" th:selected="${status != null && status.name() == 'DRAFT'}">DRAFT (작성중)</option>
+                            <option value="SCHEDULED" th:selected="${status != null and status.name() == 'SCHEDULED'}">SCHEDULED (예약)</option>
                             <option value="ACTIVE" th:selected="${status != null && status.name() == 'ACTIVE'}">ACTIVE (진행중)</option>
                             <option value="PAUSED" th:selected="${status != null && status.name() == 'PAUSED'}">PAUSED (일시중지)</option>
                             <option value="ENDED" th:selected="${status != null && status.name() == 'ENDED'}">ENDED (종료)</option>
@@ -62,6 +63,7 @@
                             <td>
                                 <span th:switch="${exp.status?.name()}">
                                     <span th:case="'DRAFT'" class="badge bg-secondary">작성중</span>
+                                    <span th:case="'SCHEDULED'" class="badge bg-info">예약</span>
                                     <span th:case="'ACTIVE'" class="badge bg-success">진행중</span>
                                     <span th:case="'PAUSED'" class="badge bg-warning">일시중지</span>
                                     <span th:case="'ENDED'" class="badge bg-dark">종료</span>
@@ -71,9 +73,10 @@
                             <td>
                                 <a th:href="@{/admin/experiments/{id}(id=${exp.id})}"
                                    class="btn btn-sm btn-success">상세/통계</a>
-                                <a th:href="@{/admin/experiments/{id}/edit(id=${exp.id})}"
+                                <a th:if="${canManageExperiments}" th:href="@{/admin/experiments/{id}/edit(id=${exp.id})}"
                                    class="btn btn-sm btn-outline-primary">수정</a>
                                 <form th:action="@{/admin/experiments/{id}/delete(id=${exp.id})}"
+                                      th:if="${canManageExperiments and !exp.configurationLocked and exp.status.name() == 'DRAFT'}"
                                       method="post" style="display: inline;"
                                       onsubmit="return confirm('정말 삭제하시겠습니까?');">
                                     <button type="submit" class="btn btn-sm btn-outline-danger">삭제</button>

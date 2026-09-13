@@ -10,7 +10,9 @@
             <tbody>
                 <tr th:each="event : ${events}">
                     <td><span th:text="${event.eventName}">purchase</span>
-                        <span th:if="${event.eventName == experiment.goalEventName}" class="badge bg-primary">목표</span></td>
+                        <span th:if="${event.kind == 'PRIMARY'}" class="badge bg-primary">목표</span>
+                        <span th:if="${event.kind == 'GUARDRAIL'}" class="badge bg-warning text-dark">가드레일</span>
+                        <span th:if="${event.kind == 'SECONDARY'}" class="badge bg-secondary">보조</span></td>
                     <td th:text="${event.variant}">A</td>
                     <td th:text="${event.users}">1</td>
                     <td th:text="${event.events}">2</td>

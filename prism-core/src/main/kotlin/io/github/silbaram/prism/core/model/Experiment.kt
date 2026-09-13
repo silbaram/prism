@@ -5,10 +5,18 @@ import io.github.silbaram.prism.core.targeting.TargetingRule
 data class Experiment(
     val key: String,
     val variants: List<Variant>,
-    val targetingRules: List<TargetingRule> = emptyList()
+    val targetingRules: List<TargetingRule> = emptyList(),
+    val trafficAllocation: Int = 100,
+    val startsAt: java.time.Instant? = null,
+    val endsAt: java.time.Instant? = null,
+    val layer: LayerAllocation? = null,
+    val holdout: HoldoutPolicy = HoldoutPolicy(),
+    val stickyBucketing: Boolean = false
 ) {
     init {
         validateVariantWeights(variants.map { it.weight })
+        require(trafficAllocation in 0..100) { "Traffic allocation must be between 0 and 100" }
+        require(startsAt == null || endsAt == null || startsAt < endsAt) { "Start must precede end" }
     }
 }
 

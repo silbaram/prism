@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+    <div>
+        <h2>실험 참여 관리</h2>
+        <section class="card p-4 mb-4">
+            <h3>영구 홀드아웃</h3>
+            <p>모든 실험에서 제외할 사용자 집합입니다. 같은 키와 비율을 계속 사용하며, 설정 후 변경할 수 없습니다. 설정 이전의 실험 경험은 되돌리지 않습니다.</p>
+            <p th:if="${policy.holdoutBasisPoints != null}"><strong th:text="${policy.holdoutKey}"></strong>:
+                <span th:text="${policy.holdoutBasisPoints / 100.0}"></span>% (고정됨)</p>
+            <p th:if="${policy.holdoutBasisPoints == null}">미설정: 현재 모든 사용자가 실험 참여 대상입니다.</p>
+            <form th:if="${canManageExperiments and policy.holdoutBasisPoints == null}" th:action="@{/admin/population/holdout}" method="post">
+                <label>홀드아웃 키 <input name="key" value="global-v1" maxlength="255" required></label>
+                <label>비율 (1 = 0.01%, 500 = 5%) <input type="number" name="basisPoints" min="0" max="10000" value="500" required></label>
+                <button class="btn btn-primary" type="submit">홀드아웃 고정</button>
+            </form>
+        </section>
+        <section class="card p-4 mb-4">
+            <h3>상호배타 레이어</h3>
+            <p>같은 레이어의 실험은 0–10,000 버킷을 나누어 사용합니다. 겹치는 범위는 거부하며, 종료한 실험의 범위도 재사용하지 않습니다.</p>
+            <ul><li th:each="layer : ${layers}"><strong th:text="${layer.key}"></strong> <span th:text="${layer.description}"></span></li></ul>
+            <form th:if="${canManageExperiments}" th:action="@{/admin/population/layers}" method="post">
+                <label>레이어 키 <input name="key" maxlength="255" required></label>
+                <label>설명 <input name="description" maxlength="255"></label>
+                <button class="btn btn-primary" type="submit">레이어 생성</button>
+            </form>
+        </section>
+        <h3>전체 사용자 집단 지표</h3>
+        <p>SDK에서 전체 사용자에게 집단 노출을 기록한 뒤 전환을 기록하세요. 개별 실험에 배정된 사용자만 기록하면 비교가 편향됩니다. 아래는 고유 사용자 수이며 유의성·승자 판정을 제공하지 않습니다.</p>
+        <ul><li th:each="cohort : ${cohortUsers}"><span th:text="${cohort[0]}"></span>: <span th:text="${cohort[1]}"></span>명 노출</li></ul>
+        <table class="table"><thead><tr><th>이벤트</th><th>집단</th><th>전환 사용자</th></tr></thead>
+            <tbody><tr th:each="outcome : ${cohortOutcomes}"><td th:text="${outcome[0]}"></td><td th:text="${outcome[1]}"></td><td th:text="${outcome[2]}"></td></tr></tbody></table>
+        <h3>변경 이력</h3>
+        <table class="table"><thead><tr><th>작업</th><th>수행자</th><th>내용</th></tr></thead>
+            <tbody><tr th:each="change : ${changes}"><td th:text="${change.action}"></td><td th:text="${change.actor}"></td><td><code th:text="${change.afterSnapshot}"></code></td></tr></tbody></table>
+    </div>
+</th:block>
+</html>

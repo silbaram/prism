@@ -14,6 +14,7 @@ plugins {
 dependencies {
     // SDK를 사용하는 쪽에서도 이 클래스를 알 수 있도록 API 의존성으로 노출해야 합니다.
     api(project(":prism-common"))
+    implementation(project(":prism-core"))
 
     // JSON 직렬화 등 런타임 의존성
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")

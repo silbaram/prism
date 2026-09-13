@@ -1,6 +1,7 @@
 package io.github.silbaram.prism.starter
 
 import io.github.silbaram.prism.sdk.PrismClient
+import io.github.silbaram.prism.sdk.PrismClientOptions
 import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.aop.PrismExperimentAspect
 import io.github.silbaram.prism.starter.aop.PrismTrackConversionAspect
@@ -24,13 +25,29 @@ class PrismAutoConfiguration(
     private val properties: PrismProperties
 ) {
 
-    @Bean
+    @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "prism.client", name = ["url"])
     fun prismClient(): PrismClient {
         return PrismClient(
             baseUrl = properties.url,
-            timeout = properties.timeout
+            timeout = properties.timeout,
+            options = PrismClientOptions(
+                evaluationMode = properties.evaluationMode,
+                configSyncInterval = properties.configSyncInterval,
+                initializationTimeout = properties.initializationTimeout,
+                eventFlushInterval = properties.eventFlushInterval,
+                eventBatchSize = properties.eventBatchSize,
+                eventQueueCapacity = properties.eventQueueCapacity,
+                exposureCacheMaximumSize = properties.exposureCacheMaximumSize,
+                shutdownTimeout = properties.shutdownTimeout,
+                exposureDedupCapacity = properties.exposureDedupCapacity,
+                apiKey = properties.apiKey,
+                configStreaming = properties.configStreaming,
+                stickyAssignmentStore = properties.stickyAssignmentsDirectory?.let {
+                    io.github.silbaram.prism.sdk.FileStickyAssignmentStore(java.nio.file.Path.of(it))
+                } ?: io.github.silbaram.prism.sdk.InMemoryStickyAssignmentStore()
+            )
         )
     }
 
