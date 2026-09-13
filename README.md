@@ -1,11 +1,11 @@
 # Prism (A/B Testing System)
 
-Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 고성능 Serving API로 구성된 확장 가능한 A/B 테스트 플랫폼입니다. SpEL 타기팅, MurmurHash 기반 분배, 실패 안전(Fail-safe) SDK를 제공합니다.
+Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 설정·이벤트 API로 구성된 A/B 테스트 플랫폼입니다. SDK는 동기화한 설정으로 로컬 SpEL 타기팅과 MurmurHash 분배를 실행하고, 노출·전환을 배치 전송합니다.
 
 ## 주요 특징
 - **무상태 트래픽 분배**: 고성능 API로 사용자별 변형(variant) 할당
 - **실험 관리/Admin**: 목표 이벤트 설정·사용자 단위 CVR·95% 신뢰구간 제공
-- **Fail-safe SDK**: 네트워크/서버 장애 시에도 기본값으로 안전하게 동작
+- **Fail-safe SDK**: 설정 동기화 장애 시 마지막 정상 설정으로 평가하며, 설정이 없으면 기본 동작으로 폴백
 - **Spring 통합**: `@PrismExperiment` 어노테이션과 안전한 전환 추적 래퍼 제공
 
 ## 프로젝트 구조
@@ -52,6 +52,7 @@ cd ..
 - SDK 상세 사용법: `prism-sdk/README.md`
 - Spring Boot 통합 가이드: `prism-spring-boot-starter/README.md`
 - 지표 정의 및 업그레이드: [이슈 #27 구현 결정과 마이그레이션](docs/issue-27.md)
+- 로컬 평가와 배치 이벤트 업그레이드: [이슈 #28 Phase 1](docs/issue-28-phase-1.md)
 
 ## 전환 지표
 

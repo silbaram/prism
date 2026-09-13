@@ -5,6 +5,7 @@ import io.github.silbaram.prism.admin.exception.ExperimentNotFoundException
 import io.github.silbaram.prism.admin.exception.InvalidVariantWeightException
 import io.github.silbaram.prism.core.model.InvalidVariantWeightsException
 import io.github.silbaram.prism.core.model.validateVariantWeights
+import io.github.silbaram.prism.core.model.validateExperimentIdentities
 import io.github.silbaram.prism.admin.service.dto.ExperimentCreateDto
 import io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentEntity
@@ -24,6 +25,7 @@ class ExperimentService(
 ) {
 
     fun createExperiment(dto: ExperimentCreateDto): ExperimentEntity {
+        validateExperimentIdentities(dto.key, dto.variants.map { it.name })
         validateUniqueKey(dto.key)
         validateWeights(dto.variants.map { it.weight })
         validateGoal(dto.goalEventName)
@@ -51,6 +53,7 @@ class ExperimentService(
     fun updateExperiment(id: Long, dto: ExperimentUpdateDto): ExperimentEntity {
         val experiment = findByIdOrThrow(id)
 
+        validateExperimentIdentities(dto.key, dto.variants.map { it.name })
         validateWeights(dto.variants.map { it.weight })
         validateGoal(dto.goalEventName)
         if (experiment.key != dto.key) validateUniqueKey(dto.key)
@@ -106,6 +109,8 @@ class ExperimentService(
 
     fun startExperiment(id: Long): ExperimentEntity {
         val experiment = findByIdOrThrow(id)
+        validateExperimentIdentities(experiment.key, experiment.variants.map { it.name })
+        validateWeights(experiment.variants.map { it.weight })
         experiment.status = ExperimentStatus.ACTIVE
         return experimentRepository.save(experiment)
     }

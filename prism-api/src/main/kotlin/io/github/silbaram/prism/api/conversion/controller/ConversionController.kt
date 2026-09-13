@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*
 @RestController
 @RequestMapping("/v1/conversions")
 class ConversionController(private val trackConversionUseCase: TrackConversionUseCase) {
+    @Deprecated("Use POST /v1/events; retained for remote clients")
     @PostMapping
     fun trackConversion(@RequestBody request: ConversionRequest): ConversionResponse {
         val result = trackConversionUseCase.trackConversion(

@@ -37,9 +37,12 @@ CREATE TABLE IF NOT EXISTS log_impression (
     experiment_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     variant VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     user_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
-    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    timestamp TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    event_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NULL,
+    UNIQUE INDEX uk_impression_event_id (event_id),
     INDEX idx_experiment_key (experiment_key),
-    INDEX idx_user_experiment (user_id, experiment_key, id)
+    INDEX idx_user_experiment (user_id, experiment_key, id),
+    INDEX idx_user_experiment_occurred (user_id, experiment_key, timestamp, event_id, id)
 );
 
 -- 5. 전환 로그 테이블
@@ -50,10 +53,18 @@ CREATE TABLE IF NOT EXISTS log_conversion (
     user_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
     impression_id BIGINT NULL,
     event_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
-    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    timestamp TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    event_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NULL,
+    UNIQUE INDEX uk_conversion_event_id (event_id),
     INDEX idx_experiment_key (experiment_key),
     CONSTRAINT fk_conversion_impression FOREIGN KEY (impression_id) REFERENCES log_impression(id),
     INDEX idx_variant (variant),
     INDEX idx_user_id (user_id),
     INDEX idx_conversion_goal (experiment_key, event_name, variant)
+);
+
+CREATE TABLE IF NOT EXISTS event_receipts (
+    event_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
+    payload_hash VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+    config_version VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL
 );

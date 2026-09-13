@@ -8,11 +8,15 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface ImpressionLogRepository : JpaRepository<ImpressionLogEntity, Long> {
+    fun findByEventId(eventId: String): ImpressionLogEntity?
     @Query("SELECT i.variant, COUNT(DISTINCT i.userId) FROM ImpressionLogEntity i WHERE i.experimentKey = :experimentKey GROUP BY i.variant")
     fun countImpressionsByVariant(experimentKey: String): List<Array<Any>>
 
     // Database insertion order is independent of API server clocks.
     fun findFirstByUserIdAndExperimentKeyOrderByIdDesc(userId: String, experimentKey: String): ImpressionLogEntity?
+
+    // Buffered batches can arrive out of order. Event ID breaks timestamp ties independently of arrival order.
+    fun findFirstByUserIdAndExperimentKeyOrderByTimestampDescEventIdDescIdDesc(userId: String, experimentKey: String): ImpressionLogEntity?
 }
 
 // New events reference the exposure validated when the event was accepted, regardless of clock skew.

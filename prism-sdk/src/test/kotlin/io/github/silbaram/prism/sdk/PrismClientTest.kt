@@ -6,6 +6,9 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Duration
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -18,12 +21,31 @@ class PrismClientTest {
     fun setup() {
         mockWebServer = MockWebServer()
         mockWebServer.start()
-        client = PrismClient(mockWebServer.url("/").toString().removeSuffix("/"))
+        client = PrismClient(mockWebServer.url("/").toString().removeSuffix("/"), options = PrismClientOptions(evaluationMode = EvaluationMode.REMOTE))
     }
 
     @AfterEach
     fun teardown() {
+        client.close()
         mockWebServer.shutdown()
+    }
+
+    @Test
+    fun `remote timeout bounds delayed response bodies for assignments lookups and conversions`() {
+        client.close()
+        client = PrismClient(mockWebServer.url("/").toString(), Duration.ofMillis(100),
+            PrismClientOptions(evaluationMode = EvaluationMode.REMOTE))
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            listOf<() -> Boolean>(
+                { client.assign("u", "e").variant == null },
+                { client.getAssignment("u", "e").variant == null },
+                { !client.trackConversion("u", "e", "purchase") }
+            ).forEach { operation ->
+                mockWebServer.enqueue(MockResponse().setBody("{}").setBodyDelay(3, TimeUnit.SECONDS))
+                assertTrue(worker.submit<Boolean> { operation() }.get(1, TimeUnit.SECONDS))
+            }
+        } finally { worker.shutdownNow() }
     }
 
     @Test

@@ -2,6 +2,7 @@ package io.github.silbaram.prism.core.splitter
 
 import io.github.silbaram.prism.core.model.Experiment
 import io.github.silbaram.prism.core.model.Variant
+import io.github.silbaram.prism.core.hashing.MurmurHash
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.doubles.plusOrMinus
@@ -20,6 +21,13 @@ import io.kotest.matchers.shouldBe
  *    - 예: A(30%), B(70%) 설정 시 실제 할당 비율이 0.3, 0.7에 수렴하는지 검증합니다.
  */
 class TrafficSplitterTest : FunSpec({
+
+    test("minimum signed hash never selects a zero weight variant") {
+        val userId = "000028wB{W"
+        MurmurHash.hash32("e:$userId") shouldBe Int.MIN_VALUE
+        val experiment = Experiment("e", listOf(Variant("disabled", 0), Variant("enabled", 100)))
+        TrafficSplitter.assign(experiment, userId)?.name shouldBe "enabled"
+    }
 
     test("동일 사용자에게 항상 동일 변형을 할당한다") {
         val variants = listOf(Variant("A", 50), Variant("B", 50))

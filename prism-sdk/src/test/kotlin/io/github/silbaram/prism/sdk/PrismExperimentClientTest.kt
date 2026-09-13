@@ -51,12 +51,12 @@ class PrismExperimentClientTest {
     @Test
     fun `zero TTL disables caching and each explicit assignment still records exposure`() {
         val noCache = PrismExperimentClient(transport, Duration.ZERO)
-        every { transport.getAssignment("u", "e") } returns assigned()
+        every { transport.getAssignment("u", "e", Duration.ZERO) } returns assigned()
         every { transport.assign("u", "e") } returns assigned()
-        every { transport.trackConversion("u", "e", "purchase") } returns true
+        every { transport.trackConversion("u", "e", "purchase", Duration.ZERO) } returns true
         repeat(2) { assertTrue(noCache.trackIfAssigned("u", "e", "purchase")) }
         repeat(2) { client.assign("u", "e") }
-        verify(exactly = 2) { transport.getAssignment("u", "e") }
+        verify(exactly = 2) { transport.getAssignment("u", "e", Duration.ZERO) }
         verify(exactly = 2) { transport.assign("u", "e") }
     }
 

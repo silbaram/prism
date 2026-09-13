@@ -118,8 +118,8 @@ object TrafficSplitter {
         val hash = MurmurHash.hash32(hashKey)
 
         // 해시값을 0-99 범위로 정규화
-        // abs()를 사용하여 음수 해시값을 양수로 변환
-        return abs(hash) % BUCKET_COUNT
+        // Widen before abs: abs(Int.MIN_VALUE) is still negative and could select a 0% variant.
+        return (abs(hash.toLong()) % BUCKET_COUNT).toInt()
     }
 
     /**

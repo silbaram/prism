@@ -34,6 +34,7 @@ dependencies {
     implementation(project(":prism-infrastructure"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("com.github.ben-manes.caffeine:caffeine")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(project(":prism-sdk"))

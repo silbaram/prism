@@ -6,6 +6,7 @@ import io.github.silbaram.prism.admin.service.dto.ExperimentCreateDto
 import io.github.silbaram.prism.admin.service.dto.VariantDto
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentEntity
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
+import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.VariantEntity
 import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.ExperimentRepository
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
@@ -110,4 +111,45 @@ class ExperimentServiceTest : FunSpec({
         updated.goalEventName shouldBe "purchase"
     }
 
+    test("create rejects invalid identities and duplicate variant names") {
+        listOf(
+            ExperimentCreateDto(" ", "", "purchase", listOf(VariantDto("A", 100))),
+            ExperimentCreateDto("e", "", "purchase", listOf(VariantDto(" ", 100))),
+            ExperimentCreateDto("e", "", "purchase", listOf(VariantDto("A".repeat(256), 100))),
+            ExperimentCreateDto("e", "", "purchase", listOf(VariantDto("A", 50), VariantDto("A", 50)))
+        ).forEach { dto ->
+            shouldThrow<IllegalArgumentException> { experimentService.createExperiment(dto) }
+        }
+        verify(exactly = 0) { experimentRepository.save(any()) }
+    }
+
+    test("update rejects duplicate names before changing a managed experiment") {
+        val entity = ExperimentEntity(id = 1, key = "e", description = "before").apply {
+            addVariant(VariantEntity(name = "A", weight = 100))
+        }
+        every { experimentRepository.findById(1) } returns java.util.Optional.of(entity)
+        shouldThrow<IllegalArgumentException> {
+            experimentService.updateExperiment(1, io.github.silbaram.prism.admin.service.dto.ExperimentUpdateDto(
+                "e", "after", "purchase", ExperimentStatus.ACTIVE, listOf(VariantDto("B", 50), VariantDto("B", 50))))
+        }
+        entity.description shouldBe "before"
+        entity.status shouldBe ExperimentStatus.DRAFT
+        entity.variants.map { it.name }.shouldContainExactly("A")
+        verify(exactly = 0) { experimentRepository.save(any()) }
+    }
+
+    test("starting an invalid historical experiment does not activate it") {
+        val entity = ExperimentEntity(id = 1, key = "e", description = "").apply {
+            addVariant(VariantEntity(name = "B", weight = 50))
+            addVariant(VariantEntity(name = "B", weight = 50))
+        }
+        every { experimentRepository.findById(1) } returns java.util.Optional.of(entity)
+        shouldThrow<IllegalArgumentException> { experimentService.startExperiment(1) }
+        entity.status shouldBe ExperimentStatus.DRAFT
+        entity.variants[1].name = "C"
+        entity.variants[1].weight = 40
+        shouldThrow<InvalidVariantWeightException> { experimentService.startExperiment(1) }
+        entity.status shouldBe ExperimentStatus.DRAFT
+        verify(exactly = 0) { experimentRepository.save(any()) }
+    }
 })

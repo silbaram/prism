@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/prism?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useUnicode=true&connectionCollation=utf8mb4_0900_bin
+    url: jdbc:mysql://localhost:3306/prism?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&preserveInstants=true&characterEncoding=UTF-8&useUnicode=true&connectionCollation=utf8mb4_0900_bin
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver

@@ -24,9 +24,11 @@ class ExperimentEntity(
     var status: ExperimentStatus = ExperimentStatus.DRAFT,
 
     @OneToMany(mappedBy = "experiment", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("id ASC")
     var variants: MutableList<VariantEntity> = mutableListOf(),
 
     @OneToMany(mappedBy = "experiment", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("id ASC")
     var targetingRules: MutableList<TargetingRuleEntity> = mutableListOf(),
 
     @Column(nullable = false)

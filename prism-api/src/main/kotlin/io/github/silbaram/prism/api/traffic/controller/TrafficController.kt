@@ -50,6 +50,7 @@ class TrafficController(
      * @return 변형 할당 결과
      */
     @GetMapping
+    @Deprecated("Use GET /v1/config and SDK local evaluation; retained for remote clients")
     fun assign(
         @RequestParam userId: String,
         @RequestParam experimentKey: String

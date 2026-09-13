@@ -1,15 +1,6 @@
 plugins {
-    id("org.springframework.boot")
     `java-library`
     `maven-publish` // Maven 저장소 배포 플러그인
-}
-
-tasks.bootJar {
-    enabled = false
-}
-
-tasks.jar {
-    enabled = true
 }
 
 dependencies {
