@@ -52,7 +52,12 @@ class FileStickyAssignmentStore(directory: Path) : StickyAssignmentStore {
                         data.force(true)
                     }
                     Files.move(temporary, file, ATOMIC_MOVE)
-                    FileChannel.open(directory, READ).use { it.force(true) }
+                    // The Windows default provider cannot open directory channels. File fsync and
+                    // atomic rename remain mandatory; actual I/O failures must still propagate.
+                    if (!(directory.fileSystem == java.nio.file.FileSystems.getDefault() &&
+                        System.getProperty("os.name").startsWith("Windows", ignoreCase = true))) {
+                        FileChannel.open(directory, READ).use { it.force(true) }
+                    }
                 } finally { Files.deleteIfExists(temporary) }
                 return proposedVariant
             } }

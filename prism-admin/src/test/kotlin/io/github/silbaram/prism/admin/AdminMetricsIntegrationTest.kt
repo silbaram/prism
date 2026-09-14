@@ -251,7 +251,9 @@ class AdminMetricsIntegrationTest {
     fun `layer ranges and holdout are validated locked audited and rendered`() {
         assertEquals(302, post("/admin/population/layers", mapOf("key" to "checkout", "description" to "Checkout tests")).statusCode())
         assertEquals(302, post("/admin/population/holdout", mapOf("key" to "global", "basisPoints" to "500")).statusCode())
-        assertEquals(400, post("/admin/population/holdout", mapOf("key" to "global", "basisPoints" to "600")).statusCode())
+        val lockedHoldout = post("/admin/population/holdout", mapOf("key" to "global", "basisPoints" to "600"))
+        assertEquals(400, lockedHoldout.statusCode())
+        assertTrue(lockedHoldout.body().contains("영구 홀드아웃은 설정 후 변경할 수 없습니다."), lockedHoldout.body())
         assertTrue(get("/admin/population").contains("고정됨"))
         assertTrue(get("/admin/population").contains("CREATE_LAYER"))
         val fields = mapOf("key" to "layer-a", "goalEventName" to "purchase", "variants[0].name" to "A",

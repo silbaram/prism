@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 @Service
 class EventAdmission(private val ingestion: EventIngestionService, private val properties: PipelineProperties,
                      private val transport: ObjectProvider<KafkaTransport>) {
-    private val mapper = jacksonObjectMapper()
+    private val mapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
     fun admit(events: List<ClientEvent>): EventsResponse {
         if (properties.mode == PipelineMode.DIRECT) return ingestion.ingest(events)
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)

@@ -34,7 +34,7 @@ class EventIngestionService(
     private val transaction = TransactionTemplate(transactionManager).apply {
         propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
     }
-    private val mapper = jacksonObjectMapper()
+    private val mapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
 
     fun ingest(events: List<ClientEvent>): EventsResponse {
         // Same-batch conversions can precede exposures on the wire.
@@ -60,12 +60,12 @@ class EventIngestionService(
                 if (event.type.startsWith("population_")) {
                     recordPopulation(event, time)
                 } else if (event.type == "exposure") {
-                    require(experiments.findByKey(event.experimentKey) != null) { "Unknown experiment" }
+                    val experiment = requireNotNull(experiments.findByKey(event.experimentKey)) { "Unknown experiment" }
                     // Buffered events may use a previous config: never reassign against today's weights/status.
                     val recorded = impressions.saveAndFlush(ImpressionLogEntity(experimentKey = event.experimentKey,
                         variant = event.variant, userId = event.userId, timestamp = time, eventId = event.eventId))
                     analysis.exposure(recorded, event.analysis?.segments.orEmpty(), event.analysis?.baselineValue,
-                        event.analysis?.baselineMeasuredAt?.let { LocalDateTime.ofInstant(Instant.parse(it), ZoneOffset.UTC) })
+                        event.analysis?.baselineMeasuredAt?.let { LocalDateTime.ofInstant(Instant.parse(it), ZoneOffset.UTC) }, experiment)
                 } else {
                     val exposureId = requireNotNull(event.exposureEventId)
                     val exposure = impressions.findByEventId(exposureId) ?: run {
@@ -105,6 +105,11 @@ class EventIngestionService(
         else EventResult(event.eventId, EventStatus.REJECTED, "Event ID already used with a different payload")
 
     fun validate(event: ClientEvent) {
+        if (event.extensions.isNotEmpty()) {
+            val reserved = setOf("eventId", "type", "userId", "experimentKey", "variant", "timestamp", "configVersion", "eventName", "exposureEventId", "analysis")
+            require(event.extensions.size <= 16 && event.extensions.keys.all { it.isNotBlank() && it.length <= 64 && it !in reserved } &&
+                mapper.writeValueAsBytes(event.extensions).size <= 16384) { "Invalid or oversized event extension metadata" }
+        }
         fun uuid(value: String) = UUID.fromString(value).toString() == value
         require(uuid(event.eventId)) { "eventId must be a canonical UUID" }
         require(event.type in setOf("exposure", "conversion", "population_exposure", "population_conversion")) { "Unknown event type" }

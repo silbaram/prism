@@ -375,6 +375,42 @@ class LocalEvaluationClientTest {
     }
 
     @Test
+    fun `normal flush uses its own budget even with a short shutdown timeout`() {
+        create(PrismClientOptions(configSyncInterval = Duration.ofHours(1), eventFlushInterval = Duration.ofHours(1),
+            flushTimeout = Duration.ofMillis(900), shutdownTimeout = Duration.ofMillis(50)))
+        client.assign("u", "checkout", mapOf("age" to 25, "country" to "KR"))
+        eventGate = CountDownLatch(1)
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            val flushing = pool.submit<Boolean> { client.flush() }
+            assertTrue(eventArrived.await(2, TimeUnit.SECONDS))
+            assertThrows(TimeoutException::class.java) { flushing.get(150, TimeUnit.MILLISECONDS) }
+            eventGate!!.countDown()
+            assertTrue(flushing.get(2, TimeUnit.SECONDS))
+            assertEquals(0, client.pendingEventCount)
+        } finally { eventGate!!.countDown(); pool.shutdownNow() }
+    }
+
+    @Test
+    fun `close can deliver an event retained after the shorter normal flush budget expires`() {
+        create(PrismClientOptions(configSyncInterval = Duration.ofHours(1), eventFlushInterval = Duration.ofHours(1),
+            flushTimeout = Duration.ofMillis(50), shutdownTimeout = Duration.ofMillis(900)))
+        client.assign("u", "checkout", mapOf("age" to 25, "country" to "KR"))
+        eventGate = CountDownLatch(1)
+        assertFalse(client.flush())
+        assertEquals(1, client.pendingEventCount)
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            val closing = pool.submit { client.close() }
+            assertTrue(eventArrived.await(2, TimeUnit.SECONDS))
+            assertThrows(TimeoutException::class.java) { closing.get(150, TimeUnit.MILLISECONDS) }
+            eventGate!!.countDown()
+            closing.get(2, TimeUnit.SECONDS)
+            assertEquals(0, client.pendingEventCount)
+        } finally { eventGate!!.countDown(); pool.shutdownNow() }
+    }
+
+    @Test
     fun `close respects its total timeout when the collector does not respond`() {
         create(PrismClientOptions(configSyncInterval = Duration.ofHours(1), eventFlushInterval = Duration.ofHours(1),
             shutdownTimeout = Duration.ofMillis(100)))

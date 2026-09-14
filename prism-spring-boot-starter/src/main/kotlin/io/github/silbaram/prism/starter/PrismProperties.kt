@@ -21,7 +21,8 @@ data class PrismProperties(
     var exposureDedupCapacity: Int = 100_000,
     var apiKey: String? = null,
     var configStreaming: Boolean = false,
-    var stickyAssignmentsDirectory: String? = null
+    var stickyAssignmentsDirectory: String? = null,
+    var flushTimeout: Duration = Duration.ofSeconds(5)
 ) {
     override fun toString() = "PrismProperties(url=$url, evaluationMode=$evaluationMode, apiKey=<redacted>)"
 }

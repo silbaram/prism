@@ -179,6 +179,8 @@ CREATE TABLE IF NOT EXISTS analysis_observations (
     invalid_reason VARCHAR(64) NULL,
     converted BOOLEAN NULL,
     finalized_at TIMESTAMP(6) NULL,
+    finalization_retry_at TIMESTAMP(6) NULL,
+    finalization_attempts INT NOT NULL DEFAULT 0,
     CONSTRAINT fk_analysis_observation_plan FOREIGN KEY (experiment_id) REFERENCES analysis_plans(experiment_id),
     CONSTRAINT fk_analysis_observation_exposure FOREIGN KEY (exposure_id) REFERENCES log_impression(id),
     UNIQUE INDEX uk_analysis_user (experiment_id, user_id),

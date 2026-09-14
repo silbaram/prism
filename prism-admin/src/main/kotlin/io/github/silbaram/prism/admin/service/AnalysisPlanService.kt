@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.security.core.context.SecurityContextHolder
 import java.time.*
+import io.github.silbaram.prism.admin.exception.requireValidInput as require
 
 data class AnalysisPlanInput(val controlVariant: String, val outcomeHours: Int = 24, val latenessHours: Int = 24,
     val segments: Map<String, List<String>> = emptyMap(), val cupedEnabled: Boolean = false, val baselineCutoff: LocalDateTime? = null, val baselineMetric: String? = null)
@@ -18,7 +19,7 @@ class AnalysisPlanService(private val population: PopulationService, private val
     private val mapper = jacksonObjectMapper()
     fun create(id: Long, input: AnalysisPlanInput): AnalysisPlanEntity {
         population.lock()
-        val experiment = requireNotNull(experiments.findForUpdate(id)) { "실험을 찾을 수 없습니다." }
+        val experiment = experiments.findForUpdate(id) ?: throw io.github.silbaram.prism.admin.exception.ExperimentNotFoundException(id)
         require(experiment.status == ExperimentStatus.DRAFT && !experiment.configurationLocked && !impressions.existsByExperimentKey(experiment.key)) {
             "분석 계획은 최초 시작·예약·노출 이전에만 만들 수 있습니다."
         }
@@ -34,7 +35,7 @@ class AnalysisPlanService(private val population: PopulationService, private val
         val now = LocalDateTime.now(ZoneOffset.UTC)
         require(input.cupedEnabled == (input.baselineCutoff != null)) { "CUPED를 사용하면 사전 데이터 마감 시각이 필요합니다." }
         require(if (input.cupedEnabled) !input.baselineMetric.isNullOrBlank() && input.baselineMetric.length <= 255 else input.baselineMetric == null) { "CUPED 사전 지표의 이름과 관측 구간을 설명하세요 (최대 255자)." }
-        input.baselineCutoff?.let { require(it <= now && it.toInstant(ZoneOffset.UTC).epochSecond >= 1 && it.nano % 1000 == 0) }
+        input.baselineCutoff?.let { require(it <= now && it.toInstant(ZoneOffset.UTC).epochSecond >= 1 && it.nano % 1000 == 0) { "사전 데이터 마감 시각은 1970-01-01T00:00:01 UTC 이후부터 현재까지이며 소수점은 최대 6자리입니다." } }
         val plan = plans.saveAndFlush(AnalysisPlanEntity(id, input.controlVariant, input.outcomeHours, input.latenessHours,
             mapper.writeValueAsString(input.segments), input.cupedEnabled, input.baselineCutoff, now, input.baselineMetric))
         // Lock the statistical design immediately; start/pause and traffic expansion remain available.

@@ -5,6 +5,7 @@ import io.github.silbaram.prism.sdk.FileStickyAssignmentStore;
 import java.nio.file.Files;
 import io.github.silbaram.prism.sdk.PrismExperimentClient;
 import io.github.silbaram.prism.common.rest.dto.event.ExposureAnalysisContext;
+import io.github.silbaram.prism.common.rest.dto.event.ClientEvent;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -18,6 +19,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Independently resolves core + SpEL through both POM and Gradle module metadata. */
 public class SdkConsumer {
     public static void main(String[] args) throws Exception {
+        // Existing Java consumers must retain the pre-extension ten-argument constructor.
+        var legacyEvent = new ClientEvent("10000000-0000-0000-0000-000000000001", "exposure", "u", "checkout", "A",
+            "2026-09-14T00:00:00Z", "a".repeat(64), null, null, null);
+        if (!legacyEvent.extensionFields().isEmpty()) throw new AssertionError("Unexpected extension metadata");
         var exposures = new AtomicInteger();
         var conversions = new AtomicInteger();
         var population = new AtomicInteger();
