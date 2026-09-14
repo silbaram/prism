@@ -64,7 +64,6 @@ export PRISM_ADMIN_PASSWORD_HASH
 - 참여 비율·기간·인증·가드레일: [이슈 #28 Phase 3](docs/issue-28-phase-3.md)
 - 레이어·홀드아웃·배정 유지·Kafka·SSE: [이슈 #28 Phase 4](docs/issue-28-phase-4.md)
 - 순차 검정·Bayesian·CUPED·세그먼트 분석: [이슈 #28 Phase 5](docs/issue-28-phase-5.md)
-- Windows 호환성·분석 재시도·보고서 캐시·JSON 확장: [이슈 #32](docs/issue-32.md)
 
 ## 전환 지표
 
