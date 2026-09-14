@@ -29,6 +29,16 @@ class PipelineStorageIntegrationTest {
     @Autowired lateinit var conversions: ConversionLogRepository
     private val mapper = jacksonObjectMapper()
 
+    private fun materializeReadyEvents() {
+        // A coarse platform clock can still read below a newly rounded TIMESTAMP(6).
+        // Make only unclaimed fixtures due explicitly; existing retry leases stay intact.
+        inbox.findAll().filter { it.status == "PENDING" && it.attempts == 0 }.forEach {
+            it.retryAt = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1)
+            inbox.saveAndFlush(it)
+        }
+        pipeline.materialize()
+    }
+
     @Test fun `dependency retries and duplicate delivery are durable and an interrupted export can be retried`() {
         experiments.save(ExperimentEntity(key = "pipeline", description = "", status = ExperimentStatus.ACTIVE).apply {
             addVariant(VariantEntity(name = "A", weight = 100))
@@ -36,14 +46,14 @@ class PipelineStorageIntegrationTest {
         val exposure = ClientEvent(UUID.randomUUID().toString(), "exposure", "u", "pipeline", "A", Instant.now().toString(), "a".repeat(64))
         val conversion = exposure.copy(eventId = UUID.randomUUID().toString(), type = "conversion", eventName = "purchase", exposureEventId = exposure.eventId)
         storage.receive(mapper.writeValueAsString(conversion))
-        pipeline.materialize()
+        materializeReadyEvents()
         assertEquals("PENDING", inbox.findAll().single().status)
         assertEquals(0, conversions.count())
         storage.receive(mapper.writeValueAsString(exposure))
         storage.receive(mapper.writeValueAsString(exposure))
-        pipeline.materialize()
+        materializeReadyEvents()
         inbox.findAll().filter { it.status == "PENDING" }.forEach { it.retryAt = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1); inbox.save(it) }
-        pipeline.materialize()
+        materializeReadyEvents()
         assertEquals(1, impressions.count())
         assertEquals(1, conversions.count())
         assertEquals(2, inbox.count())
@@ -57,7 +67,7 @@ class PipelineStorageIntegrationTest {
         assertEquals(exported[0], exported[1])
         assertFalse(outbox.existsById(exposure.eventId))
         storage.receive(mapper.writeValueAsString(exposure.copy(variant = "conflict")))
-        pipeline.materialize()
+        materializeReadyEvents()
         assertEquals(1, inbox.findAll().count { it.status == "REJECTED" })
         assertEquals(1, impressions.count())
         storage.receive("not-json")

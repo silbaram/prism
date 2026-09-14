@@ -22,7 +22,8 @@ prism:
     event-queue-capacity: 10000
     exposure-cache-maximum-size: 10000
     exposure-dedup-capacity: 100000
-    shutdown-timeout: 5s
+    flush-timeout: 5s      # 평상시 flush의 전체 시간 예산
+    shutdown-timeout: 5s   # 종료 시 마지막 flush의 별도 예산
     assignment-cache-ttl: 30s
     assignment-cache-maximum-size: 10000
 ```

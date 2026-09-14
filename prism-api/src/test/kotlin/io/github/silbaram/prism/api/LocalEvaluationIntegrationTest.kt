@@ -29,11 +29,12 @@ import java.util.concurrent.*
     "spring.jpa.properties.hibernate.show_sql=false", "prism.config.cache-ttl=PT0.000000001S"
 ])
 class LocalEvaluationIntegrationTest {
-    @Autowired lateinit var experiments: ExperimentRepository
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean lateinit var experiments: ExperimentRepository
     @Autowired lateinit var impressions: ImpressionLogRepository
     @Autowired lateinit var conversions: ConversionLogRepository
     @Autowired lateinit var receipts: EventReceiptRepository
     @Autowired lateinit var environment: Environment
+    @Autowired lateinit var httpMapper: tools.jackson.databind.json.JsonMapper
     private val mapper = jacksonObjectMapper()
     private lateinit var http: HttpClient
     private val baseUrl get() = "http://localhost:${environment.getProperty("local.server.port")}"
@@ -70,6 +71,54 @@ class LocalEvaluationIntegrationTest {
     private fun conversion(exposure: ClientEvent) = ClientEvent(UUID.randomUUID().toString(), "conversion",
         exposure.userId, exposure.experimentKey, exposure.variant, Instant.now().toString(), exposure.configVersion,
         "purchase", exposure.eventId)
+
+    @Test fun `future JSON fields retain their values and participate in idempotency hashes`() {
+        val event = exposure("future").copy(extensions = linkedMapOf("future_meta" to linkedMapOf(
+            "amount" to java.math.BigDecimal("0.12345678901234567890123456789"), "trace" to listOf("abc", null, true)),
+            "extensions" to mapOf("nested" to "preserved")))
+        val decoded = httpMapper.readValue(mapper.writeValueAsString(EventsRequest(listOf(event))), EventsRequest::class.java).events.single()
+        assertEquals(mapper.writeValueAsString(event), mapper.writeValueAsString(decoded))
+        val pipelineMapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+        val roundTrip = pipelineMapper.readValue<ClientEvent>(pipelineMapper.writeValueAsBytes(decoded))
+        assertEquals(mapper.writeValueAsString(event), pipelineMapper.writeValueAsString(roundTrip))
+        org.mockito.Mockito.clearInvocations(experiments)
+        assertEquals(EventStatus.ACCEPTED, post(listOf(event)).results.single().status)
+        org.mockito.Mockito.verify(experiments, org.mockito.Mockito.times(1)).findByKey(event.experimentKey)
+        val expectedHash = java.security.MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(event))
+            .joinToString("") { "%02x".format(it) }
+        assertEquals(expectedHash, receipts.findById(event.eventId).orElseThrow().payloadHash)
+        assertEquals(EventStatus.DUPLICATE, post(listOf(event)).results.single().status)
+        assertEquals(EventStatus.REJECTED, post(listOf(event.copy(extensions = mapOf("future_meta" to "changed")))).results.single().status)
+    }
+
+    @Test fun `future fields survive arbitrary field order and repeated decoding across mapper versions`() {
+        val pipelineMapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+        val event = exposure("round-trip").copy(extensions = linkedMapOf(
+            "extensionFields" to mapOf("nullable" to null, "array" to listOf(1, true, "s")),
+            "extensions" to "literal extension name",
+            "future" to mapOf("tiny" to java.math.BigDecimal("1e-400"),
+                "large" to java.math.BigInteger("1234567890123456789012345678901234567890"))))
+        val expected = pipelineMapper.writeValueAsString(event)
+        val fields = pipelineMapper.readValue<LinkedHashMap<String, Any?>>(expected).entries.toList()
+        listOf(fields, fields.reversed(), fields.drop(7) + fields.take(7)).forEach { ordered ->
+            var json = pipelineMapper.writeValueAsString(ordered.associate { it.key to it.value })
+            repeat(3) {
+                val httpEvent = httpMapper.readValue(json, ClientEvent::class.java)
+                json = pipelineMapper.writeValueAsString(pipelineMapper.readValue<ClientEvent>(pipelineMapper.writeValueAsBytes(httpEvent)))
+                assertEquals(expected, json)
+            }
+        }
+    }
+
+    @Test fun `extension limits reject only the invalid events in a batch`() {
+        val large = exposure("large").copy(extensions = mapOf("future" to "x".repeat(16385)))
+        val many = exposure("many").copy(extensions = (1..17).associate { "field$it" to it })
+        val valid = exposure("valid-extension").copy(extensions = mapOf("future" to null))
+        assertEquals(listOf(EventStatus.REJECTED, EventStatus.REJECTED, EventStatus.ACCEPTED),
+            post(listOf(large, many, valid)).results.map { it.status })
+        assertEquals(1, impressions.count())
+        assertEquals(1, receipts.count())
+    }
 
     @Test fun `HTTP batch rejects an unrepresentable baseline instant and still accepts its valid event`() {
         val invalid = exposure("invalid-time").copy(analysis = ExposureAnalysisContext(baselineValue = 1.0,

@@ -35,7 +35,7 @@ internal class LocalEvaluationClient(
                                 val holdout: io.github.silbaram.prism.core.model.HoldoutPolicy, val revision: Long, val holdoutConfigured: Boolean)
     private data class Key(val userId: String, val experimentKey: String)
     private data class CachedExposure(val event: ClientEvent, val cachedAt: Long = System.nanoTime())
-    private val mapper = jacksonObjectMapper()
+    private val mapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
     private val logger = LoggerFactory.getLogger(javaClass)
     private val snapshot = AtomicReference<Snapshot?>()
     private val initialized = CountDownLatch(1)
@@ -314,10 +314,12 @@ internal class LocalEvaluationClient(
     }
 
     /** Drains at most the events present at entry, within a total deadline. Failed batches retain IDs. */
-    fun flush(): Boolean {
-        val deadline = System.nanoTime() + options.shutdownTimeout.toNanos()
+    fun flush(): Boolean = flush(options.flushTimeout)
+
+    private fun flush(totalBudget: Duration): Boolean {
+        val deadline = System.nanoTime() + totalBudget.toNanos()
         try {
-            if (!flushLock.tryLock(options.shutdownTimeout.toNanos(), TimeUnit.NANOSECONDS)) return false
+            if (!flushLock.tryLock(totalBudget.toNanos(), TimeUnit.NANOSECONDS)) return false
         } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
         try {
             val remaining = synchronized(queue) { queue.keys.toList() }
@@ -388,7 +390,7 @@ internal class LocalEvaluationClient(
             stream?.close()
             configWorker.shutdownNow()
             eventWorker.shutdown() // Allow an in-flight delivery to complete within flush's total deadline.
-            if (!flush()) logger.warn("Client closed with {} undelivered events", pendingEventCount)
+            if (!flush(options.shutdownTimeout)) logger.warn("Client closed with {} undelivered events", pendingEventCount)
         } finally {
             try {
                 eventWorker.shutdownNow()

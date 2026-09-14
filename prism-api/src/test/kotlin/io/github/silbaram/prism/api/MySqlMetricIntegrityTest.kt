@@ -68,6 +68,7 @@ class MySqlMetricIntegrityTest {
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/031_experiment_operations.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/032_experiment_scale.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/033_advanced_analysis.sql"))
+                        ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/034_analysis_finalization_retry.sql"))
                         assertEquals(1L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft'"))
                         assertEquals(0L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft '"))
                         assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM experiments WHERE experiment_key IN ('paused', 'ended') AND configuration_locked = TRUE"))
@@ -223,6 +224,16 @@ class MySqlMetricIntegrityTest {
             assertEquals(0.0, row.baselineValue)
             assertEquals(123456000, row.exposedAt.nano)
             assertEquals(2, row.maturesAt.hour)
+            assertNull(row.finalizationRetryAt)
+            assertEquals(0, row.finalizationAttempts)
+            row.finalizationRetryAt = row.maturesAt.plusSeconds(30)
+            row.finalizationAttempts = 1
+            observations.saveAndFlush(row)
+            val retried = observations.findById(row.id).orElseThrow()
+            assertEquals(row.finalizationRetryAt, retried.finalizationRetryAt)
+            assertEquals(1, retried.finalizationAttempts)
+            row.finalizationRetryAt = null
+            row.finalizationAttempts = 0
             row.converted = false; row.finalizedAt = row.maturesAt
             observations.saveAndFlush(row)
             val late = exposure.copy(eventId = UUID.randomUUID().toString(), type = "conversion", analysis = null,

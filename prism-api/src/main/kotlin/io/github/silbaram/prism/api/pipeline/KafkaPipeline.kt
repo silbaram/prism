@@ -60,7 +60,7 @@ class KafkaPipeline(private val properties: PipelineProperties, private val stor
                 catch (_: RuntimeException) { TimeUnit.MILLISECONDS.sleep(500) }
             }
         } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
-        finally { consumer.set(null); client.close(Duration.ofSeconds(5)) }
+        finally { consumer.set(null); client.close(org.apache.kafka.clients.consumer.CloseOptions.timeout(Duration.ofSeconds(5))) }
     }
     fun materialize() {
         try { inbox.due(LocalDateTime.now(ZoneOffset.UTC), PageRequest.of(0, 100)).forEach(storage::process) }

@@ -10,7 +10,7 @@
                 <ul class="mb-0"><li th:each="error : ${formErrors}" th:text="${error}"></li></ul>
             </div>
 
-            <form th:action="${experiment.id == null ? '/admin/experiments' : '/admin/experiments/' + experiment.id}"
+            <form th:action="${experiment.id == null} ? @{/admin/experiments} : @{/admin/experiments/{id}(id=${experiment.id})}"
                   method="post" class="card p-4 shadow-sm" id="experimentForm"
                   th:with="locked=${experiment.configurationLocked or experiment.status.name() != 'DRAFT'}"
                   th:attr="data-locked=${locked}">

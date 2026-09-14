@@ -19,8 +19,10 @@ class AnalysisRecorder(private val plans: AnalysisPlanRepository, private val ob
         .digest("$experimentId:$userId".toByteArray()).joinToString("") { "%02x".format(it) }
 
     fun exposure(exposure: ImpressionLogEntity, segments: Map<String, String> = emptyMap(), baseline: Double? = null,
-                 baselineMeasuredAt: LocalDateTime? = null) {
-        val experiment = experiments.findByKey(exposure.experimentKey) ?: return
+                 baselineMeasuredAt: LocalDateTime? = null,
+                 knownExperiment: ExperimentEntity? = null) {
+        val experiment = knownExperiment ?: experiments.findByKey(exposure.experimentKey) ?: return
+        require(experiment.key == exposure.experimentKey)
         val plan = plans.findById(experiment.id!!).orElse(null) ?: return
         // JDBC/database precision can differ from the nanosecond input still held by JPA.
         // Compare exactly the timestamp used by persisted outcome queries (DIRECT and REMOTE).

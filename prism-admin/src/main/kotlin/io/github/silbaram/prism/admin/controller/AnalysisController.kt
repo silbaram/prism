@@ -5,6 +5,8 @@ import org.springframework.stereotype.Controller
 import org.springframework.ui.Model
 import org.springframework.web.bind.annotation.*
 import java.time.LocalDateTime
+import io.github.silbaram.prism.admin.exception.requireValidInput as require
+import io.github.silbaram.prism.admin.exception.AdminValidationException
 
 @Controller @RequestMapping("/admin/experiments/{id}/analysis")
 class AnalysisController(private val service: AdvancedAnalysisService, private val plans: AnalysisPlanService,
@@ -17,7 +19,7 @@ class AnalysisController(private val service: AdvancedAnalysisService, private v
     }
     private fun parseCutoff(value: String): LocalDateTime? = try {
         value.takeIf(String::isNotBlank)?.let(LocalDateTime::parse)
-    } catch (_: java.time.format.DateTimeParseException) { throw IllegalArgumentException("사전 데이터 마감 시각은 UTC 날짜·시간 형식이어야 합니다.") }
+    } catch (_: java.time.format.DateTimeParseException) { throw AdminValidationException("사전 데이터 마감 시각은 UTC 날짜·시간 형식이어야 합니다.") }
 
     @PostMapping("/plan") fun plan(@PathVariable id: Long, @RequestParam controlVariant: String,
         @RequestParam outcomeHours: Int, @RequestParam latenessHours: Int,

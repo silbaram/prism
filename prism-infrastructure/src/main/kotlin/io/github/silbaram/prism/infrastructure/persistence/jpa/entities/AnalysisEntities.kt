@@ -32,5 +32,7 @@ class AnalysisObservationEntity(
     @Column(name = "baseline_value") var baselineValue: Double? = null,
     @Column(name = "invalid_reason", length = 64) var invalidReason: String? = null,
     @Column var converted: Boolean? = null,
-    @Convert(converter = UtcLogTimestampConverter::class) @Column(name = "finalized_at") var finalizedAt: LocalDateTime? = null
+    @Convert(converter = UtcLogTimestampConverter::class) @Column(name = "finalized_at") var finalizedAt: LocalDateTime? = null,
+    @Convert(converter = UtcLogTimestampConverter::class) @Column(name = "finalization_retry_at") var finalizationRetryAt: LocalDateTime? = null,
+    @Column(name = "finalization_attempts", nullable = false) var finalizationAttempts: Int = 0
 )

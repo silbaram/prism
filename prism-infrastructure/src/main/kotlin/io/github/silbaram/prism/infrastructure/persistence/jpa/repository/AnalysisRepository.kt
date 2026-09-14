@@ -19,11 +19,13 @@ interface AnalysisSample {
 interface AnalysisObservationRepository : JpaRepository<AnalysisObservationEntity, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE) @Query("SELECT o FROM AnalysisObservationEntity o WHERE o.id = :id")
     fun lock(id: String): AnalysisObservationEntity?
-    @Query("SELECT o.id FROM AnalysisObservationEntity o WHERE o.finalizedAt IS NULL AND o.maturesAt <= :now ORDER BY o.maturesAt, o.id")
+    @Query("SELECT o.id FROM AnalysisObservationEntity o WHERE o.finalizedAt IS NULL AND o.maturesAt <= :now " +
+        "AND (o.finalizationRetryAt IS NULL OR o.finalizationRetryAt <= :now) ORDER BY o.maturesAt, o.id")
     fun due(now: LocalDateTime, pageable: Pageable): List<String>
     @Query("SELECT o.variant, COUNT(o) FROM AnalysisObservationEntity o WHERE o.experimentId = :id GROUP BY o.variant")
     fun enrollment(id: Long): List<Array<Any>>
     fun countByExperimentIdAndFinalizedAtIsNull(experimentId: Long): Long
+    fun countByExperimentIdAndFinalizedAtIsNotNull(experimentId: Long): Long
     fun countByExperimentIdAndInvalidReasonIsNotNull(experimentId: Long): Long
     @Query("SELECT o.id AS id, o.variant AS variant, o.converted AS converted, o.baselineValue AS baselineValue, o.segmentsJson AS segmentsJson " +
         "FROM AnalysisObservationEntity o WHERE o.experimentId = :experimentId AND o.finalizedAt IS NOT NULL AND o.id > :after ORDER BY o.id")

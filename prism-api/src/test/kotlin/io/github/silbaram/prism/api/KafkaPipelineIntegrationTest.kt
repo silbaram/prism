@@ -42,7 +42,7 @@ class KafkaPipelineIntegrationTest {
     @Autowired lateinit var policies: PopulationPolicyRepository
     @Autowired lateinit var populationExposures: PopulationExposureRepository
     @Autowired lateinit var populationConversions: PopulationConversionRepository
-    private val mapper = jacksonObjectMapper()
+    private val mapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
     companion object {
         private val prefix = "prism-test-${UUID.randomUUID()}"
         @JvmStatic @DynamicPropertySource fun properties(registry: DynamicPropertyRegistry) {
@@ -67,7 +67,8 @@ class KafkaPipelineIntegrationTest {
             segmentsJson = "{\"device\":[\"mobile\"]}", cupedEnabled = true,
             baselineCutoff = LocalDateTime.now(ZoneOffset.UTC).minusHours(2), createdAt = LocalDateTime.now(ZoneOffset.UTC).minusHours(1)))
         val exposure = ClientEvent(UUID.randomUUID().toString(), "exposure", "u", "checkout", "A", Instant.now().toString(), "b".repeat(64),
-            analysis = ExposureAnalysisContext(mapOf("device" to "mobile"), 7.0, Instant.now().minusSeconds(10800).toString()))
+            analysis = ExposureAnalysisContext(mapOf("device" to "mobile"), 7.0, Instant.now().minusSeconds(10800).toString()),
+            extensions = mapOf("future_meta" to mapOf("ratio" to java.math.BigDecimal("0.12345678901234567890123456789"))))
         val conversion = exposure.copy(eventId = UUID.randomUUID().toString(), type = "conversion", eventName = "purchase", exposureEventId = exposure.eventId, analysis = null)
         val cohort = exposure.copy(eventId = UUID.randomUUID().toString(), type = "population_exposure", experimentKey = "global-v1", variant = "ELIGIBLE", analysis = null)
         val cohortConversion = cohort.copy(eventId = UUID.randomUUID().toString(), type = "population_conversion", eventName = "purchase", exposureEventId = cohort.eventId)

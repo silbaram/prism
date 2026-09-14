@@ -21,7 +21,7 @@ import java.util.UUID
 import java.util.concurrent.*
 
 @SpringBootTest(classes = [PrismAdminApplication::class], webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [
-    "prism.admin.username=admin", "prism.schedule.enabled=false", "prism.analysis.finalization-enabled=false",
+    "server.servlet.context-path=/prism", "prism.admin.username=admin", "prism.schedule.enabled=false", "prism.analysis.finalization-enabled=false",
     "prism.admin.password-hash=\$2b\$04\$LRstVyy4zR4QXm44gykK2ONHlIxElNIiv5nBw.kpCCZzshC5cMXHS",
     "spring.datasource.url=jdbc:h2:mem:advanced-analysis;MODE=MySQL;DB_CLOSE_DELAY=-1",
     "spring.datasource.driver-class-name=org.h2.Driver", "spring.datasource.username=sa", "spring.datasource.password=",
@@ -34,6 +34,7 @@ class AdvancedAnalysisIntegrationTest {
     @Autowired lateinit var plans: AnalysisPlanRepository
     @Autowired lateinit var planService: AnalysisPlanService
     @Autowired lateinit var observations: AnalysisObservationRepository
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean lateinit var snapshotReader: AnalysisSnapshotReader
     @Autowired lateinit var analytics: AdvancedAnalysisService
     @Autowired lateinit var finalizer: AnalysisFinalizer
     @Autowired lateinit var ingestion: EventIngestionService
@@ -49,6 +50,65 @@ class AdvancedAnalysisIntegrationTest {
     }
     private fun create() = experimentService.createExperiment(ExperimentCreateDto("advanced", "", "purchase",
         listOf(VariantDto("A", 50), VariantDto("B", 50))))
+
+    @Test fun `a stale batch cutoff never schedules failed rows for retry in the past`() {
+        val experiment = create()
+        planService.create(experiment.id!!, AnalysisPlanInput("A", 1, 1))
+        experimentService.startExperiment(experiment.id!!)
+        val exposure = ClientEvent(UUID.randomUUID().toString(), "exposure", "slow-batch", "advanced", "A",
+            Instant.now().minusSeconds(14400).toString(), "a".repeat(64))
+        assertEquals(EventStatus.ACCEPTED, ingestion.ingest(listOf(exposure)).results.single().status)
+        experiments.save(experiments.findById(experiment.id!!).orElseThrow().apply { goalEventName = null })
+        val before = LocalDateTime.now(ZoneOffset.UTC)
+        // Represents a cutoff captured before earlier rows spent two minutes processing.
+        assertEquals(0, finalizer.finalizeDue(before.minusMinutes(2)))
+        val failed = observations.findAll().single()
+        assertNull(failed.finalizedAt)
+        assertTrue(failed.finalizationRetryAt!! >= before.plusSeconds(30), failed.finalizationRetryAt.toString())
+        assertEquals(0, finalizer.finalizeDue(LocalDateTime.now(ZoneOffset.UTC)))
+        assertEquals(1, observations.findById(failed.id).orElseThrow().finalizationAttempts)
+    }
+
+    @Test fun `failed outcomes back off without aborting healthy work and recover after repair`() {
+        fun experiment(key: String) = experimentService.createExperiment(ExperimentCreateDto(key, "", "purchase",
+            listOf(VariantDto("A", 50), VariantDto("B", 50)))).also {
+            planService.create(it.id!!, AnalysisPlanInput("A", 1, 1))
+            experimentService.startExperiment(it.id!!)
+        }
+        val broken = experiment("broken")
+        experiment("healthy")
+        val start = Instant.now().plusSeconds(1).truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+        val events = (0 until 501).map { index ->
+            val key = if (index < 500) "broken" else "healthy"
+            ClientEvent(UUID.randomUUID().toString(), "exposure", "$key-$index", key, "A",
+                start.plusSeconds(if (index < 500) 0 else 1).toString(), "a".repeat(64))
+        }
+        events.chunked(100).forEach { batch ->
+            assertTrue(ingestion.ingest(batch).results.all { it.status == EventStatus.ACCEPTED })
+        }
+        // Simulate a corrupt legacy row. Only this experiment's finalization should fail.
+        experiments.save(experiments.findById(broken.id!!).orElseThrow().apply { goalEventName = null })
+        val now = LocalDateTime.ofInstant(start.plusSeconds(10800), ZoneOffset.UTC)
+        assertEquals(0, finalizer.finalizeDue(now)) // The first page contains 500 broken rows.
+        assertEquals(1, finalizer.finalizeDue(now)) // Backoff makes room for the 501st, healthy row.
+        val failed = observations.findAll().single { it.userId == "broken-0" }
+        assertNull(failed.finalizedAt)
+        assertNull(failed.converted)
+        assertEquals(1, failed.finalizationAttempts)
+        assertEquals(now.plusSeconds(30), failed.finalizationRetryAt)
+        assertNotNull(observations.findAll().single { it.userId == "healthy-500" }.finalizedAt)
+        assertEquals(0, finalizer.finalizeDue(now))
+        assertEquals(1, observations.findById(failed.id).orElseThrow().finalizationAttempts)
+        experiments.save(experiments.findById(broken.id!!).orElseThrow().apply { goalEventName = "purchase" })
+        assertEquals(0, finalizer.finalizeDue(now.plusSeconds(29)))
+        assertEquals(500, finalizer.finalizeDue(now.plusSeconds(30)))
+        val repaired = observations.findById(failed.id).orElseThrow()
+        assertEquals(false, repaired.converted)
+        assertNotNull(repaired.finalizedAt)
+        assertNull(repaired.finalizationRetryAt)
+        assertEquals(0, repaired.finalizationAttempts)
+        assertTrue(observations.findAll().all { it.finalizedAt != null && it.finalizationRetryAt == null && it.finalizationAttempts == 0 })
+    }
 
     @Test fun `nanosecond input uses persisted precision for repeated exposures and late conversion boundaries`() {
         val experiment = create()
@@ -126,6 +186,7 @@ class AdvancedAnalysisIntegrationTest {
         withAdmin { http, url ->
             val page = http.send(HttpRequest.newBuilder(URI.create("$url/admin/experiments/${experiment.id}/edit")).GET().build(), HttpResponse.BodyHandlers.ofString())
             assertEquals(200, page.statusCode())
+            assertTrue(page.body().contains("action=\"/prism/admin/experiments/${experiment.id}\""), page.body())
             val option = Regex("<option[^>]*value=\"DRAFT\"[^>]*>").find(page.body())!!.value
             assertFalse(option.contains("disabled"), option)
         }
@@ -148,7 +209,15 @@ class AdvancedAnalysisIntegrationTest {
         assertEquals(500, finalizer.finalizeDue(mature))
         assertEquals(2, finalizer.finalizeDue(mature))
         assertEquals(0, finalizer.finalizeDue(mature))
+        org.mockito.Mockito.clearInvocations(snapshotReader)
+        val coldStart = System.nanoTime()
         val report = analytics.report(experiment.id!!)
+        val coldMillis = (System.nanoTime() - coldStart) / 1_000_000.0
+        val warmStart = System.nanoTime()
+        assertSame(report, analytics.report(experiment.id!!))
+        val warmMillis = (System.nanoTime() - warmStart) / 1_000_000.0
+        org.mockito.Mockito.verify(snapshotReader, org.mockito.Mockito.times(1)).load(experiment.id!!)
+        println("Analysis report (1002 finalized users): cold=${coldMillis}ms warm=${warmMillis}ms; full scans=1 for 2 requests")
         assertTrue(report.available)
         assertEquals(0, report.pendingUsers)
         assertEquals(listOf(501L, 501L), report.groups.map { it.users })
@@ -221,16 +290,22 @@ class AdvancedAnalysisIntegrationTest {
             val page = form()
             assertEquals(200, page.statusCode())
             val token = Regex("name=\"_csrf\"[^>]*value=\"([^\"]+)\"").find(page.body())!!.groupValues[1]
+            var responseBody = ""
             fun post(values: Map<String, String>): Int {
                 val payload = (values + ("_csrf" to token)).entries.joinToString("&") {
                     URLEncoder.encode(it.key, Charsets.UTF_8) + "=" + URLEncoder.encode(it.value, Charsets.UTF_8)
                 }
-                return http.send(HttpRequest.newBuilder(URI.create("$url/admin/experiments/${experiment.id}/analysis/plan"))
+                val response = http.send(HttpRequest.newBuilder(URI.create("$url/admin/experiments/${experiment.id}/analysis/plan"))
                     .header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(payload)).build(),
-                    HttpResponse.BodyHandlers.ofString()).statusCode()
+                    HttpResponse.BodyHandlers.ofString())
+                responseBody = response.body()
+                return response.statusCode()
             }
             val fields = mapOf("controlVariant" to "A", "outcomeHours" to "24", "latenessHours" to "24", "segments" to "device=mobile,desktop")
             assertEquals(400, post(fields + ("baselineCutoff" to "not-a-date")))
+            assertTrue(responseBody.contains("사전 데이터 마감 시각은 UTC 날짜·시간 형식이어야 합니다."), responseBody)
+            assertEquals(400, post(fields + ("outcomeHours" to "0")))
+            assertTrue(responseBody.contains("관측 기간은 1–720시간"), responseBody)
             assertFalse(plans.existsById(experiment.id!!))
             assertEquals(302, post(fields))
             assertTrue(experiments.findById(experiment.id!!).orElseThrow().configurationLocked)
@@ -281,7 +356,7 @@ class AdvancedAnalysisIntegrationTest {
     }
 
     private fun withAdmin(block: (HttpClient, String) -> Unit) {
-        val url = "http://localhost:${environment.getProperty("local.server.port")}"
+        val url = "http://localhost:${environment.getProperty("local.server.port")}/prism"
         HttpClient.newBuilder().cookieHandler(CookieManager(null, CookiePolicy.ACCEPT_ALL)).build().use { http ->
             val page = http.send(HttpRequest.newBuilder(URI.create("$url/login")).GET().build(), HttpResponse.BodyHandlers.ofString())
             val token = Regex("name=\"_csrf\"[^>]*value=\"([^\"]+)\"").find(page.body())!!.groupValues[1]

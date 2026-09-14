@@ -1,11 +1,7 @@
 package io.github.silbaram.prism.admin.service
 
-import com.fasterxml.jackson.module.kotlin.*
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.*
-import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.*
-import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.*
 
 data class AdvancedGroup(val variant: String, val users: Long, val conversions: Long, val rate: Double?, val baselineUsers: Long)
 data class AdvancedComparison(val variant: String, val difference: Double?, val sequential: AnalysisInterval?,
@@ -16,33 +12,32 @@ data class AdvancedReport(val plan: AnalysisPlanEntity?, val pendingUsers: Long 
     val groups: List<AdvancedGroup> = emptyList(), val comparisons: List<AdvancedComparison> = emptyList(),
     val segments: List<SegmentEffect> = emptyList())
 
-@Service @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-class AdvancedAnalysisService(private val experiments: ExperimentRepository, private val plans: AnalysisPlanRepository,
-                              private val observations: AnalysisObservationRepository, private val impressions: ImpressionLogRepository) {
-    private val mapper = jacksonObjectMapper()
-    fun report(id: Long): AdvancedReport {
-        val experiment = experiments.findById(id).orElseThrow { IllegalArgumentException("실험을 찾을 수 없습니다.") }
-        val plan = plans.findById(id).orElse(null) ?: return AdvancedReport(null)
-        val variants = experiment.variants.filter { it.weight > 0 }.map { it.name }
-        val definitions = mapper.readValue<Map<String, List<String>>>(plan.segmentsJson)
-        val overall = variants.associateWith { AnalysisMoments() }
-        val segmented = definitions.flatMap { (key, values) -> (values + listOf<String?>(null)).map { key to it } }
-            .associateWith { variants.associateWith { AnalysisMoments() } }
-        var after = ""
-        while (true) {
-            val page = observations.samples(id, after, PageRequest.of(0, 1000))
-            if (page.isEmpty()) break
-            page.forEach { row ->
-                overall[row.variant]?.add(row.converted, row.baselineValue)
-                val values = mapper.readValue<Map<String, String>>(row.segmentsJson)
-                definitions.keys.forEach { key -> segmented[key to values[key]]?.get(row.variant)?.add(row.converted, row.baselineValue) }
-            }
-            after = page.last().id
-        }
-        val enrolled = observations.enrollment(id).associate { it[0] as String to it[1] as Long }
-        val srm = sampleRatioMismatch(experiment.variants.map { it.name to it.weight }, enrolled, impressions.countExposedUsers(experiment.key))
-        val invalid = observations.countByExperimentIdAndInvalidReasonIsNotNull(id)
-        val pending = observations.countByExperimentIdAndFinalizedAtIsNull(id)
+@Service
+class AdvancedAnalysisService(private val reader: AnalysisSnapshotReader) {
+    private data class Cached(val revision: AnalysisRevision, val report: AdvancedReport)
+    private val cache = com.github.benmanes.caffeine.cache.Caffeine.newBuilder()
+        .maximumSize(64).expireAfterAccess(java.time.Duration.ofMinutes(10)).build<Long, Cached>()
+    private val locks = Array(64) { Any() }
+
+    fun report(id: Long): AdvancedReport = synchronized(locks[Math.floorMod(id.hashCode(), locks.size)]) {
+        // Wait for concurrent report generation before borrowing a database connection.
+        val revision = reader.revision(id)
+        cache.getIfPresent(id)?.takeIf { it.revision == revision }?.let { return@synchronized it.report }
+        val snapshot = reader.load(id)
+        val report = calculate(snapshot)
+        cache.put(id, Cached(snapshot.state.revision, report))
+        report
+    }
+
+    private fun calculate(snapshot: AnalysisSnapshot): AdvancedReport {
+        val plan = snapshot.state.plan ?: return AdvancedReport(null)
+        val revision = snapshot.state.revision
+        val overall = snapshot.overall
+        val segmented = snapshot.segmented
+        val variants = snapshot.state.weights.filter { it.second > 0 }.map { it.first }
+        val srm = sampleRatioMismatch(snapshot.state.weights, revision.enrolled, revision.uniqueUsers)
+        val invalid = revision.invalid
+        val pending = revision.pending
         val available = srm.status == SrmStatus.PASS && invalid == 0L && plan.controlVariant in variants
         fun group(name: String, values: AnalysisMoments) = AdvancedGroup(name, values.n, values.successes, values.rate, values.baselineCount)
         val control = overall[plan.controlVariant]

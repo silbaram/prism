@@ -64,6 +64,7 @@ val client = PrismClient(
         eventQueueCapacity = 10_000,
         exposureCacheMaximumSize = 10_000,
         exposureDedupCapacity = 100_000,
+        flushTimeout = java.time.Duration.ofSeconds(5),
         shutdownTimeout = java.time.Duration.ofSeconds(5)
     )
 )
@@ -76,6 +77,8 @@ val client = PrismClient(
 `flush()`는 진입 시 큐의 이벤트를 제한 시간 내에 전송합니다. 응답 유실·HTTP 오류·불완전한 ACK에는 큐를 보존하고 `false`를 반환합니다. `true`는 해당 flush가 거부 없이 완료되고 큐가 비었다는 뜻이며, 이전의 비동기 전송에서 거부된 이벤트까지 성공했다는 의미는 아닙니다. `pendingEventCount`로 현재 미확인 이벤트 수를 확인할 수 있습니다.
 
 개별 이벤트의 `RETRY`는 해당 ID만 보존하며 뒤의 정상 배치는 계속 전송합니다. 각 flush는 시작 시점의 이벤트를 한 번씩 시도합니다. 최근 거부된 노출 ID는 큐 용량 한도 내에서 기억하여 명시적 참조로 다시 추적하는 것도 거부합니다.
+
+`flush()`와 주기 전송은 `flushTimeout`(기본 5초)을 전체 시간 예산으로 사용합니다. 큐 잠금 대기와 모든 배치 전송이 이 예산에 포함되며, 실패한 이벤트는 같은 ID로 재시도합니다. 개별 요청에는 HTTP 타임아웃도 적용됩니다. `shutdownTimeout`을 줄여도 평상시 flush 예산은 줄어들지 않습니다.
 
 `close()`와 JVM 종료 훅은 `shutdownTimeout` 안에 남은 이벤트 전송을 시도합니다. 동시 종료 호출은 먼저 시작한 종료를 제한 시간 내에서 기다리며, HTTP 클라이언트는 마지막 전송 시도가 끝난 뒤 정리합니다. 비정상 종료나 네트워크 단절이 계속되면 메모리 이벤트가 유실될 수 있습니다. 디스크 기반 재전송은 제공하지 않습니다. LOCAL·REMOTE HTTP 타임아웃은 응답 본문 수신까지 포함합니다.
 
@@ -121,7 +124,7 @@ Phase 3 서버는 모든 HTTP 경로에 API 키를 요구합니다. `PrismClient
 
 ## 레이어, 홀드아웃, 배정 유지와 실시간 설정
 
-서버에서 지정한 레이어와 전역 홀드아웃을 로컬 평가에 적용합니다. `PrismClientOptions(configStreaming = true)`로 SSE 설정 전파를 켜면 기존 폴링과 함께 동작합니다. `stickyAssignmentStore = FileStickyAssignmentStore(Path.of("/var/lib/my-app/prism-prod"))`로 동일 호스트의 재시작 간 최초 배정을 유지할 수 있습니다. 기본 저장소는 client 수명의 메모리 저장소입니다.
+서버에서 지정한 레이어와 전역 홀드아웃을 로컬 평가에 적용합니다. `PrismClientOptions(configStreaming = true)`로 SSE 설정 전파를 켜면 기존 폴링과 함께 동작합니다. `stickyAssignmentStore = FileStickyAssignmentStore(Path.of("/var/lib/my-app/prism-prod"))`로 동일 호스트의 재시작 간 최초 배정을 유지할 수 있습니다. 기본 저장소는 client 수명의 메모리 저장소입니다. Windows 기본 파일시스템에서도 파일 동기화와 원자적 이동을 수행합니다. 디렉터리 동기화는 지원되지 않아 생략하므로 전원 장애 직전의 디렉터리 변경까지 내구성을 보장하지는 않습니다. 파일 쓰기·이동 실패는 계속 호출자에게 전달됩니다.
 
 `recordPopulationExposure(userId)`를 공통 서비스 진입 시 모든 사용자에게 실행하고, 전환 시 `trackPopulationConversion(userId, eventName)`을 호출하면 홀드아웃/실험 참여 가능 집단의 누적 결과를 별도 계측합니다. LOCAL 모드 전용이며 같은 client에서 선행 모집단 노출이 필요합니다. `isInHoldout(userId)`는 정책을 모르면 null을 반환합니다.
 

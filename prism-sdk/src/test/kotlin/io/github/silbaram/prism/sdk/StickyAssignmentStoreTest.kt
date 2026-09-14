@@ -22,6 +22,15 @@ class StickyAssignmentStoreTest {
         } finally { workers.shutdownNow() }
         assertEquals("other", first.getOrPut("u", "different", "other"))
     }
+    @Test fun `file IO errors propagate instead of returning an unsaved assignment`() {
+        val store = FileStickyAssignmentStore(directory)
+        java.nio.file.Files.createDirectory(directory.resolve(".lock"))
+        assertThrows(java.io.IOException::class.java) { store.getOrPut("u", "experiment", "A") }
+        java.nio.file.Files.delete(directory.resolve(".lock"))
+        assertEquals("B", store.getOrPut("u", "experiment", "B"))
+        assertEquals("B", FileStickyAssignmentStore(directory).getOrPut("u", "experiment", "A"))
+    }
+
     @Test fun `capacity exhaustion rejects new identities without evicting prior assignments`() {
         val store = InMemoryStickyAssignmentStore(1)
         assertEquals("A", store.getOrPut("u", "experiment", "A"))

@@ -27,6 +27,10 @@ class AdminControllerAdvice {
     @ExceptionHandler(IllegalArgumentException::class)
     fun invalidValue() = message(400, "입력값을 확인하세요.")
 
+    @ExceptionHandler(io.github.silbaram.prism.admin.exception.AdminValidationException::class)
+    fun invalidDomainValue(error: io.github.silbaram.prism.admin.exception.AdminValidationException) =
+        message(400, error.message.orEmpty())
+
     @ExceptionHandler(DataIntegrityViolationException::class, PessimisticLockingFailureException::class)
     fun conflict() = message(409, "다른 변경과 충돌했습니다. 최신 실험을 다시 확인하세요.")
 

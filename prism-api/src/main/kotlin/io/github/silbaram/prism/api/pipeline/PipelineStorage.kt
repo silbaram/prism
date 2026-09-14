@@ -18,7 +18,7 @@ class PipelineStorage(manager: PlatformTransactionManager, private val entityMan
                       private val inbox: PipelineInboxRepository, private val outbox: PipelineOutboxRepository,
                       private val ingestion: EventIngestionService) {
     private val transaction = TransactionTemplate(manager).apply { propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW }
-    private val mapper = jacksonObjectMapper()
+    private val mapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
     private fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 
     fun receive(payload: String, source: String? = null) {
