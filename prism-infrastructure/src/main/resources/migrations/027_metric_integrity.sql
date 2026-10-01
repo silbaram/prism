@@ -1,4 +1,4 @@
--- MySQL 8+. One-time migration for an existing installation; see docs/issue-27.md.
+-- MySQL 8+. One-time migration for an existing installation; see README.md (DB upgrade).
 -- Stop API/admin writes and back up the database before running. DDL commits implicitly.
 -- Leave existing goals unset: each experiment owner must select its real primary event.
 ALTER TABLE experiments
