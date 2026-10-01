@@ -56,6 +56,7 @@ export PRISM_ADMIN_PASSWORD_HASH
 - 프로필: `SPRING_PROFILES_ACTIVE=local` 등으로 환경 분리
 
 ## 문서
+- 실험별 순서형 퍼널: [이슈 #25 집계 기준과 사용법](docs/issue-25.md)
 - SDK 상세 사용법: `prism-sdk/README.md`
 - Spring Boot 통합 가이드: `prism-spring-boot-starter/README.md`
 - 지표 정의 및 업그레이드: [이슈 #27 구현 결정과 마이그레이션](docs/issue-27.md)

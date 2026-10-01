@@ -21,6 +21,7 @@
             </tbody>
         </table>
         <a th:href="@{/admin/experiments/{id}(id=${experiment.id})}" class="btn btn-outline-secondary">실험 통계로 돌아가기</a>
+        <a th:href="@{/admin/experiments/{id}/funnel(id=${experiment.id})}" class="btn btn-outline-secondary">순서형 퍼널 보기</a>
     </div>
 </th:block>
 </html>
