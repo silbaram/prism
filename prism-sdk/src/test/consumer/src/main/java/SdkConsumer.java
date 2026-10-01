@@ -83,6 +83,11 @@ public class SdkConsumer {
                 !transport.flush() || population.get() != 2) {
                 throw new AssertionError("Population instrumentation failed");
             }
+            if (transport.getExposureDedupCount() != 1 || transport.getPopulationExposureDedupCount() != 1 ||
+                transport.getExposureDedupRejectedCount() != 0 || transport.getPopulationExposureDedupRejectedCount() != 0 ||
+                "9999".equals(io.github.silbaram.prism.sdk.SdkResponseCode.EXPOSURE_DEDUP_CAPACITY_REACHED.getCode())) {
+                throw new AssertionError("Published SDK dedup diagnostics failed");
+            }
             var directory = Files.createTempDirectory("prism-consumer-sticky");
             try {
                 new FileStickyAssignmentStore(directory).getOrPut("u", "checkout", "A");

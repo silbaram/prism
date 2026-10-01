@@ -54,6 +54,13 @@ class PrismClient @JvmOverloads constructor(
     fun trackPopulationConversion(userId: String, eventName: String): Boolean = local?.trackPopulationConversion(userId, eventName) ?: false
     fun flush(): Boolean = local?.flush() ?: true
     val pendingEventCount: Int get() = local?.pendingEventCount ?: 0
+    /** Lifetime user/experiment dedup entries, retained after acknowledgement; zero in REMOTE mode. */
+    val exposureDedupCount: Int get() = local?.exposureDedupCount ?: 0
+    /** Separately bounded population-user dedup entries; zero in REMOTE mode. */
+    val populationExposureDedupCount: Int get() = local?.populationExposureDedupCount ?: 0
+    /** Capacity-rejected registration attempts over this client's lifetime, including repeated attempts. */
+    val exposureDedupRejectedCount: Long get() = local?.exposureDedupRejectedCount ?: 0
+    val populationExposureDedupRejectedCount: Long get() = local?.populationExposureDedupRejectedCount ?: 0
     override fun close() {
         // In LOCAL mode the winning close/shutdown hook owns transport teardown after its final flush.
         if (local != null) local.close() else client.shutdownNow()

@@ -208,6 +208,102 @@ class LocalEvaluationClientTest {
     }
 
     @Test
+    fun `capacity has a distinct assignment failure and boolean registration counts rejections`() {
+        create(PrismClientOptions(exposureDedupCapacity = 1, configSyncInterval = Duration.ofHours(1),
+            eventFlushInterval = Duration.ofHours(1)))
+        val attributes = mapOf("age" to 25, "country" to "KR")
+        assertEquals(0, client.exposureDedupCount)
+        assertNotNull(client.assign("u", "checkout", attributes).variant)
+        assertTrue(client.flush())
+        assertEquals(1, client.exposureDedupCount)
+        assertEquals(0, client.pendingEventCount)
+        val rejected = client.assign("new", "checkout", attributes)
+        assertEquals(SdkResponseCode.EXPOSURE_DEDUP_CAPACITY_REACHED.code, rejected.resultCode)
+        assertEquals("Exposure deduplication capacity reached", rejected.resultMessage)
+        assertFalse(AssignmentOutcome.from(rejected).assigned)
+        assertNull(rejected.variant)
+        assertNull(rejected.exposureEventId)
+        assertFalse(client.recordExposure(client.evaluate("another", "checkout", attributes)))
+        assertEquals(2L, client.exposureDedupRejectedCount)
+        assertNotNull(client.assign("u", "checkout", attributes).variant)
+        assertEquals(2L, client.exposureDedupRejectedCount)
+        assertEquals(1, client.exposureDedupCount)
+        client.close()
+        assertEquals(SdkResponseCode.CLIENT_ERROR.code, client.assign("u", "checkout", attributes).resultCode)
+        assertEquals(0, client.exposureDedupCount)
+        assertEquals(2L, client.exposureDedupRejectedCount)
+    }
+
+    @Test
+    fun `queue saturation and unavailable configuration are not dedup capacity failures`() {
+        create(PrismClientOptions(eventBatchSize = 1, eventQueueCapacity = 1, exposureDedupCapacity = 2,
+            configSyncInterval = Duration.ofHours(1), eventFlushInterval = Duration.ofHours(1)))
+        eventGate = CountDownLatch(1)
+        val attributes = mapOf("age" to 25, "country" to "KR")
+        assertNotNull(client.assign("u", "checkout", attributes).variant)
+        assertEquals(SdkResponseCode.CLIENT_ERROR.code, client.assign("new", "checkout", attributes).resultCode)
+        assertEquals(0L, client.exposureDedupRejectedCount)
+        assertEquals(1, client.exposureDedupCount)
+        eventGate!!.countDown()
+        client.close()
+        failConfig.set(true)
+        create(PrismClientOptions(initializationTimeout = Duration.ZERO,
+            configSyncInterval = Duration.ofHours(1), eventFlushInterval = Duration.ofHours(1)))
+        assertFalse(client.refreshConfig())
+        assertEquals(SdkResponseCode.CLIENT_ERROR.code, client.assign("u", "checkout", attributes).resultCode)
+        assertEquals(0L, client.exposureDedupRejectedCount)
+        assertEquals(0, client.exposureDedupCount)
+    }
+
+    @Test
+    fun `population and experiment dedup usage and rejection counters are independent`() {
+        config.set(configuration().copy(holdout = HoldoutConfig("permanent", 0, true)))
+        create(PrismClientOptions(exposureDedupCapacity = 1, configSyncInterval = Duration.ofHours(1),
+            eventFlushInterval = Duration.ofHours(1)))
+        assertTrue(client.refreshConfig())
+        assertEquals(0, client.populationExposureDedupCount)
+        assertTrue(client.recordPopulationExposure("u"))
+        assertNotNull(client.assign("u", "checkout", mapOf("age" to 25, "country" to "KR")).variant)
+        assertTrue(client.flush())
+        assertEquals(1, client.populationExposureDedupCount)
+        assertEquals(1, client.exposureDedupCount)
+        assertTrue(client.recordPopulationExposure("u"))
+        repeat(3) { assertFalse(client.recordPopulationExposure("new")) }
+        assertEquals(3L, client.populationExposureDedupRejectedCount)
+        assertEquals(0L, client.exposureDedupRejectedCount)
+        assertTrue(client.trackPopulationConversion("u", "purchase"))
+        assertTrue(client.flush())
+        client.close()
+        assertEquals(0, client.populationExposureDedupCount)
+        assertEquals(3L, client.populationExposureDedupRejectedCount)
+    }
+
+    @Test
+    fun `permanent rejection releases dedup usage and preserves capacity rejection totals`() {
+        create(PrismClientOptions(exposureDedupCapacity = 1, configSyncInterval = Duration.ofHours(1),
+            eventFlushInterval = Duration.ofHours(1)))
+        val attributes = mapOf("age" to 25, "country" to "KR")
+        val first = client.assign("u", "checkout", attributes)
+        client.assign("new", "checkout", attributes)
+        rejectExposure.set(true)
+        assertFalse(client.flush())
+        assertEquals(0, client.exposureDedupCount)
+        assertEquals(1L, client.exposureDedupRejectedCount)
+        rejectExposure.set(false)
+        assertNotEquals(first.exposureEventId, client.assign("u", "checkout", attributes).exposureEventId)
+        assertEquals(1, client.exposureDedupCount)
+    }
+
+    @Test
+    fun `remote mode exposes zero local dedup diagnostics`() {
+        create(PrismClientOptions(evaluationMode = EvaluationMode.REMOTE))
+        assertEquals(0, client.exposureDedupCount)
+        assertEquals(0, client.populationExposureDedupCount)
+        assertEquals(0L, client.exposureDedupRejectedCount)
+        assertEquals(0L, client.populationExposureDedupRejectedCount)
+    }
+
+    @Test
     fun `lifetime dedup capacity rejects new identities without evicting prior exposures`() {
         create(PrismClientOptions(exposureDedupCapacity = 1, configSyncInterval = Duration.ofHours(1),
             eventFlushInterval = Duration.ofHours(1)))

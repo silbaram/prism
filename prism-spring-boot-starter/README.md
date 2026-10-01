@@ -146,7 +146,13 @@ val accepted = conversionTracker.trackConversionSafe("user-123", "checkout", "pu
 ./gradlew :prism-spring-boot-starter:test
 ```
 
-LOCAL 노출은 공유 client 수명 동안 사용자×실험별로 중복 제거합니다. `exposure-dedup-capacity` 도달 시 새 조합의 노출은 실패하므로 예상 사용자 수에 맞게 설정하세요. 어노테이션과 Strategy는 실제 경험을 제공하는 시점에 사용합니다. 화면 준비와 노출이 다르면 SDK의 `evaluate()` / `recordExposure()`로 분리하세요. [Phase 2 정책](../docs/issue-28-phase-2.md)을 참고하세요.
+LOCAL 노출은 공유 client 수명 동안 사용자×실험별로 중복 제거합니다. `exposure-dedup-capacity` (기본 100,000) 도달 시 새 조합의 `assign()`은 `SdkResponseCode.EXPOSURE_DEDUP_CAPACITY_REACHED` (`9998`)를 반환하고 `AssignmentOutcome.assigned`는 `false`가 됩니다. 일반 client 오류 (`9999`)와 구분해 모니터링하세요. 이미 기록한 조합과 전환은 계속 처리하며 ACK·설정 갱신으로 항목을 지우거나 자동 퇴출하지 않습니다. 모집단 노출은 별도 목록에 같은 한도를 적용하며, 가득 차면 `recordPopulationExposure()`가 `false`를 반환합니다.
+
+자동 구성된 `PrismClient` 빈을 주입해 `exposureDedupCount`, `populationExposureDedupCount`, `exposureDedupRejectedCount`, `populationExposureDedupRejectedCount`를 수집하세요. 앞의 두 값은 현재 항목 수이고 뒤의 두 값은 용량 때문에 거절된 누적 호출 수(재시도 포함)입니다. `pendingEventCount`는 전송 큐 크기이므로 한도 사용량을 나타내지 않습니다. 경고 로그는 목록별 최대 1분에 한 번이며 현재 사용량·한도·이전 경고 이후 거절 수·총 거절 수를 포함합니다. 다음 거절 호출이 없으면 추가 경고가 출력되지 않으므로 카운터 증가와 사용량 비율에도 경보를 설정하세요.
+
+일일 사용자 수보다 **client 수명 동안 해당 인스턴스에 도달하는 누적 고유 사용자×실험 조합 수**와 여유분으로 한도를 정하세요. 동일 조합의 재방문은 추가되지 않지만 신규 사용자와 신규 실험은 누적됩니다. 모집단 목록은 누적 고유 사용자 수를 별도로 고려하세요. 한도를 높이기 전 분석 메타데이터를 포함한 실제 힙 사용량을 측정하세요. [SDK 사용량·사이징 설명](../prism-sdk/README.md)을 참고하세요.
+
+어노테이션과 Strategy는 실제 경험을 제공하는 시점에 사용합니다. 화면 준비와 노출이 다르면 SDK의 `evaluate()` / `recordExposure()`로 분리하세요. [Phase 2 정책](../docs/issue-28-phase-2.md)을 참고하세요.
 
 Phase 3 API는 설정·이벤트·기존 원격 API 모두 키를 요구합니다. 키는 서버의 `PRISM_API_KEYS`와 일치해야 합니다. 참여 비율·기간을 쓰기 전에 모든 소비자를 새 SDK/스타터로 갱신하세요. [Phase 3 운영·배포 가이드](../docs/issue-28-phase-3.md)를 참고하세요.
 

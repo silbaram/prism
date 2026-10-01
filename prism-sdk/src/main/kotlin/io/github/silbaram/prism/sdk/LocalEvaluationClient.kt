@@ -35,6 +35,11 @@ internal class LocalEvaluationClient(
                                 val holdout: io.github.silbaram.prism.core.model.HoldoutPolicy, val revision: Long, val holdoutConfigured: Boolean)
     private data class Key(val userId: String, val experimentKey: String)
     private data class CachedExposure(val event: ClientEvent, val cachedAt: Long = System.nanoTime())
+    private sealed interface ExposureAdmission {
+        data class Recorded(val event: ClientEvent) : ExposureAdmission
+        data object Unavailable : ExposureAdmission
+        data object CapacityReached : ExposureAdmission
+    }
     private val mapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
     private val logger = LoggerFactory.getLogger(javaClass)
     private val snapshot = AtomicReference<Snapshot?>()
@@ -51,6 +56,14 @@ internal class LocalEvaluationClient(
     // Keep the original reference/version so conversions still point to an actual exposure.
     private val recordedExposures = HashMap<Key, ClientEvent>()
     private val populationExposures = HashMap<String, ClientEvent>()
+    private val exposureDedupDiagnostics = ExposureDedupDiagnostics { total, sinceLastWarning ->
+        logger.warn("Exposure deduplication capacity reached; rejecting new user/experiment exposures: used={}, capacity={}, rejectedSinceLastWarning={}, rejectedTotal={}",
+            recordedExposures.size, options.exposureDedupCapacity, sinceLastWarning, total)
+    }
+    private val populationDedupDiagnostics = ExposureDedupDiagnostics { total, sinceLastWarning ->
+        logger.warn("Population exposure deduplication capacity reached; rejecting new users: used={}, capacity={}, rejectedSinceLastWarning={}, rejectedTotal={}",
+            populationExposures.size, options.exposureDedupCapacity, sinceLastWarning, total)
+    }
     private val rejectedExposures = Caffeine.newBuilder().maximumSize(options.eventQueueCapacity.toLong())
         .build<String, Boolean>()
     private val flushLock = ReentrantLock()
@@ -143,11 +156,14 @@ internal class LocalEvaluationClient(
     fun assign(userId: String, experimentKey: String, attributes: Map<String, Any>, analysis: ExposureAnalysisContext? = null): AssignmentResponse {
         val result = evaluate(userId, experimentKey, attributes)
         if (result.variant == null) return result
-        val exposure = enqueueExposure(result, analysis) ?: return failed(userId, experimentKey)
-        return result.copy(configVersion = exposure.configVersion, exposureEventId = exposure.eventId)
+        return when (val admission = enqueueExposure(result, analysis)) {
+            is ExposureAdmission.Recorded -> result.copy(configVersion = admission.event.configVersion, exposureEventId = admission.event.eventId)
+            ExposureAdmission.CapacityReached -> failed(userId, experimentKey, SdkResponseCode.EXPOSURE_DEDUP_CAPACITY_REACHED)
+            ExposureAdmission.Unavailable -> failed(userId, experimentKey)
+        }
     }
 
-    fun recordExposure(result: AssignmentResponse, analysis: ExposureAnalysisContext? = null): Boolean = enqueueExposure(result, analysis) != null
+    fun recordExposure(result: AssignmentResponse, analysis: ExposureAnalysisContext? = null): Boolean = enqueueExposure(result, analysis) is ExposureAdmission.Recorded
 
     /** null means no validated configuration is available; never guess the comparison cohort. */
     fun isInHoldout(userId: String): Boolean? = if (closed.get() || !validIdentity(userId)) null else snapshot.get()?.takeIf { it.holdoutConfigured }?.holdout?.excludes(userId)
@@ -160,7 +176,10 @@ internal class LocalEvaluationClient(
         synchronized(queue) {
             if (closed.get()) return false
             if (populationExposures.containsKey(userId)) return true
-            if (populationExposures.size >= options.exposureDedupCapacity) return false
+            if (populationExposures.size >= options.exposureDedupCapacity) {
+                populationDedupDiagnostics.reject()
+                return false
+            }
             val event = ClientEvent(UUID.randomUUID().toString(), "population_exposure", userId, state.holdout.key,
                 if (state.holdout.excludes(userId)) "HOLDOUT" else "ELIGIBLE", Instant.now().toString(), state.version)
             if (!enqueue(event)) return false
@@ -180,33 +199,33 @@ internal class LocalEvaluationClient(
         return queued
     }
 
-    private fun enqueueExposure(result: AssignmentResponse, analysis: ExposureAnalysisContext? = null): ClientEvent? {
-        try { analysis?.validate() } catch (_: IllegalArgumentException) { return null }
-        val variant = result.variant ?: return null
-        val version = result.configVersion ?: return null
+    private fun enqueueExposure(result: AssignmentResponse, analysis: ExposureAnalysisContext? = null): ExposureAdmission {
+        try { analysis?.validate() } catch (_: IllegalArgumentException) { return ExposureAdmission.Unavailable }
+        val variant = result.variant ?: return ExposureAdmission.Unavailable
+        val version = result.configVersion ?: return ExposureAdmission.Unavailable
         if (result.resultCode != ResponseCode.SUCCESS.code || !version.matches(Regex("[0-9a-f]{64}")) ||
-            !validIdentity(result.userId) || !validIdentity(result.experimentKey) || !validIdentity(variant)) return null
+            !validIdentity(result.userId) || !validIdentity(result.experimentKey) || !validIdentity(variant)) return ExposureAdmission.Unavailable
         val event = ClientEvent(UUID.randomUUID().toString(), "exposure", result.userId, result.experimentKey,
             variant, Instant.now().toString(), version, analysis = analysis?.copy(segments = analysis.segments.toMap()))
         synchronized(queue) {
-            if (closed.get()) return null
+            if (closed.get()) return ExposureAdmission.Unavailable
             val key = Key(result.userId, result.experimentKey)
             recordedExposures[key]?.takeIf { it.variant == variant }?.let {
                 exposures.put(key, CachedExposure(it))
-                return it
+                return ExposureAdmission.Recorded(it)
             }
             if (key !in recordedExposures && recordedExposures.size >= options.exposureDedupCapacity) {
-                logger.warn("Exposure deduplication capacity reached; rejecting new user/experiment exposure")
-                return null
+                exposureDedupDiagnostics.reject()
+                return ExposureAdmission.CapacityReached
             }
             // A changed variant must remain observable as contamination; never attribute it to the old variant.
-            if (!enqueue(event)) return null
+            if (!enqueue(event)) return ExposureAdmission.Unavailable
             recordedExposures[key] = event
             exposures.put(key, CachedExposure(event))
             pendingExposures[key] = event
         }
         scheduleFlush()
-        return event
+        return ExposureAdmission.Recorded(event)
     }
 
     fun getAssignment(userId: String, experimentKey: String, cacheTtl: Duration): AssignmentResponse {
@@ -306,6 +325,10 @@ internal class LocalEvaluationClient(
     }
 
     val pendingEventCount: Int get() = synchronized(queue) { queue.size }
+    val exposureDedupCount: Int get() = synchronized(queue) { recordedExposures.size }
+    val populationExposureDedupCount: Int get() = synchronized(queue) { populationExposures.size }
+    val exposureDedupRejectedCount: Long get() = exposureDedupDiagnostics.rejectedCount
+    val populationExposureDedupRejectedCount: Long get() = populationDedupDiagnostics.rejectedCount
 
     private fun scheduleFlush() {
         if (pendingEventCount < options.eventBatchSize || !flushScheduled.compareAndSet(false, true)) return
@@ -405,6 +428,8 @@ internal class LocalEvaluationClient(
     private fun send(request: HttpRequest, budget: Duration = timeout) = sendWithTimeout(http, request, budget, options.apiKey)
 
     private fun validIdentity(value: String) = value.isNotBlank() && value.length <= 255
-    private fun failed(userId: String, experimentKey: String) = AssignmentResponse(userId, experimentKey, null,
-        SdkResponseCode.CLIENT_ERROR.code, "Local evaluation unavailable or exposure capacity reached")
+    private fun failed(userId: String, experimentKey: String, code: SdkResponseCode = SdkResponseCode.CLIENT_ERROR) =
+        AssignmentResponse(userId, experimentKey, null, code.code,
+            if (code == SdkResponseCode.EXPOSURE_DEDUP_CAPACITY_REACHED) "Exposure deduplication capacity reached"
+            else "Local evaluation unavailable")
 }
