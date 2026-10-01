@@ -126,7 +126,7 @@ Admin CVR은 **목표 이벤트 발생 고유 사용자 / 노출 고유 사용�
 
 ## 업그레이드와 검증
 
-[Phase 1 API 계약·마이그레이션](../docs/issue-28-phase-1.md)에 따라 스키마와 API를 먼저 배포한 뒤 SDK/스타터 소비자를 다시 빌드하세요. 기본 모드와 전환 Boolean의 의미가 바뀌므로 기존 애플리케이션은 `REMOTE`를 명시하거나 로컬 동작에 맞게 이전해야 합니다.
+[DB 업그레이드](../README.md#db-업그레이드)에 따라 스키마와 API를 먼저 배포한 뒤 SDK/스타터 소비자를 다시 빌드하세요. 기본 모드와 전환 Boolean의 의미가 바뀌므로 기존 애플리케이션은 `REMOTE`를 명시하거나 로컬 동작에 맞게 이전해야 합니다.
 
 ```bash
 ./gradlew :prism-sdk:test
@@ -135,7 +135,7 @@ Admin CVR은 **목표 이벤트 발생 고유 사용자 / 노출 고유 사용�
 
 `verifySdkPublication`은 common·core·SDK를 빌드 디렉터리의 임시 Maven 저장소에 게시하고, 독립 Java 프로젝트가 Gradle 모듈 메타데이터와 POM으로 각각 로컬 할당·SpEL 타기팅·이벤트 배치를 실행하는지 검증합니다. `check`와 `build`에 포함됩니다.
 
-Phase 3 서버는 모든 HTTP 경로에 API 키를 요구합니다. `PrismClientOptions.apiKey` 또는 Java의 `new PrismClient(url, apiKey)`를 사용하세요. 참여 비율과 UTC 기간은 동기화된 설정으로 로컬에서 검사하며, 알고 있는 종료 시각 이후에는 설정 서버 장애 중에도 할당하지 않습니다. 운영 기능 사용 전 모든 SDK를 갱신해야 합니다. [인증·배포 정책](../docs/issue-28-phase-3.md)을 참고하세요.
+Phase 3 서버는 모든 HTTP 경로에 API 키를 요구합니다. `PrismClientOptions.apiKey` 또는 Java의 `new PrismClient(url, apiKey)`를 사용하세요. 참여 비율과 UTC 기간은 동기화된 설정으로 로컬에서 검사하며, 알고 있는 종료 시각 이후에는 설정 서버 장애 중에도 할당하지 않습니다. 운영 기능 사용 전 모든 SDK를 갱신해야 합니다. [인증 정책](../README.md#인증)을 참고하세요.
 
 ## 레이어, 홀드아웃, 배정 유지와 실시간 설정
 
@@ -143,8 +143,8 @@ Phase 3 서버는 모든 HTTP 경로에 API 키를 요구합니다. `PrismClient
 
 `recordPopulationExposure(userId)`를 공통 서비스 진입 시 모든 사용자에게 실행하고, 전환 시 `trackPopulationConversion(userId, eventName)`을 호출하면 홀드아웃/실험 참여 가능 집단의 누적 결과를 별도 계측합니다. LOCAL 모드 전용이며 같은 client에서 선행 모집단 노출이 필요합니다. `isInHoldout(userId)`는 정책을 모르면 null을 반환합니다.
 
-Kafka 모드에서 `flush()` 성공은 Kafka 수신 확인(`QUEUED`)까지이며 집계 완료는 비동기입니다. [Phase 4의 배포 순서·저장소 계약·계측 예시](../docs/issue-28-phase-4.md)를 참고하세요.
+Kafka 모드에서 `flush()` 성공은 Kafka 수신 확인(`QUEUED`)까지이며 집계 완료는 비동기입니다. [이벤트 수집과 설정 전파](../README.md#이벤트-수집과-설정-전파)를 참고하세요.
 
 ## Phase 5 고급 분석 계측
 
-LOCAL의 `assign(userId, experimentKey, attributes, analysis)` 또는 `recordExposure(evaluation, analysis)`에 `ExposureAnalysisContext`를 전달하면 최초 노출의 사전 세그먼트와 CUPED 지표를 기록합니다. 기존 호출은 그대로 사용할 수 있습니다. 타기팅 속성은 자동 전송되지 않습니다. 먼저 서버 마이그레이션 033과 API/Admin을 배포하고, 실험 시작 전에 분석 계획을 고정하세요. [계측 예시와 분석 계약](../docs/issue-28-phase-5.md)을 참고하세요.
+LOCAL의 `assign(userId, experimentKey, attributes, analysis)` 또는 `recordExposure(evaluation, analysis)`에 `ExposureAnalysisContext`를 전달하면 최초 노출의 사전 세그먼트와 CUPED 지표를 기록합니다. 기존 호출은 그대로 사용할 수 있습니다. 타기팅 속성은 자동 전송되지 않습니다. 먼저 [DB 업그레이드](../README.md#db-업그레이드)와 API/Admin 배포를 완료하고, 실험 시작 전에 분석 계획을 고정하세요. [계측 예시와 분석 계약](../README.md#고급-분석)을 참고하세요.

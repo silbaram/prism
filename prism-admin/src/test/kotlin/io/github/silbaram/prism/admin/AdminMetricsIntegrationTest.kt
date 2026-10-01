@@ -16,6 +16,8 @@ import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import io.github.silbaram.prism.admin.service.ExperimentService
+import io.github.silbaram.prism.admin.service.FunnelAnalysisService
+import io.github.silbaram.prism.admin.service.FunnelQuery
 import io.github.silbaram.prism.admin.service.dto.*
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
@@ -38,6 +40,7 @@ class AdminMetricsIntegrationTest {
     @Autowired lateinit var environment: Environment
     @Autowired lateinit var changes: ExperimentChangeRepository
     @Autowired lateinit var service: ExperimentService
+    @Autowired lateinit var funnels: FunnelAnalysisService
     @Autowired lateinit var transactions: PlatformTransactionManager
     @Autowired lateinit var dataSource: javax.sql.DataSource
     @Autowired lateinit var policies: PopulationPolicyRepository
@@ -72,6 +75,193 @@ class AdminMetricsIntegrationTest {
         val login = postRaw(http, "/login", mapOf("username" to "admin", "password" to "prism-test-password", "_csrf" to csrf(loginPage.body())))
         assertEquals(302, login.statusCode(), login.body())
         assertFalse(login.headers().firstValue("Location").orElse("").contains("error"))
+    }
+
+    @Test
+    fun `ordered funnel deduplicates users and ignores skipped and out of order stages`() {
+        val experiment = funnelExperiment()
+        fun event(user: String, name: String, hours: Long, variant: String = "A") =
+            funnelEvent(experiment, user, name, funnelStart.plusHours(hours), variant)
+        // Arrival order must not determine the funnel.
+        event("complete", "purchase", 3); event("complete", "cart", 0)
+        event("complete", "checkout", 1); event("complete", "cart", 2); event("complete", "checkout", 2)
+        event("early", "checkout", 0); event("early", "cart", 1); event("early", "purchase", 2)
+        event("boundary", "cart", 0); event("boundary", "checkout", 1); event("boundary", "purchase", 24)
+        event("skip", "cart", 0); event("skip", "purchase", 1)
+        event("complete-2", "cart", 0); event("complete-2", "checkout", 22); event("complete-2", "purchase", 23)
+        event("other-variant", "cart", 0, "B")
+        val report = funnels.report(experiment.id!!, FunnelQuery(listOf("cart", "checkout", "purchase"),
+            funnelStart, funnelStart.plusDays(2), 24))
+        val a = report.groups.single { it.variant == "A" }
+        assertEquals(listOf(5L, 3L, 2L), a.stages.map { it.users })
+        assertEquals(60.0, a.stages[1].fromPreviousPercent)
+        assertEquals(40.0, a.stages[2].fromFirstPercent)
+        assertEquals(200.0 / 3, a.stages[2].fromPreviousPercent!!, 1e-9)
+        assertEquals(listOf(1L, 0L, 0L), report.groups.single { it.variant == "B" }.stages.map { it.users })
+    }
+
+    @Test
+    fun `funnel excludes immature cohorts even if they already completed and never restarts first step`() {
+        val experiment = funnelExperiment()
+        funnelEvent(experiment, "mature", "cart", funnelStart)
+        funnelEvent(experiment, "mature", "purchase", funnelStart.plusHours(1))
+        funnelEvent(experiment, "pending", "cart", funnelStart.plusHours(25))
+        funnelEvent(experiment, "pending", "purchase", funnelStart.plusHours(26))
+        funnelEvent(experiment, "repeat", "cart", funnelStart)
+        funnelEvent(experiment, "repeat", "cart", funnelStart.plusHours(20))
+        funnelEvent(experiment, "repeat", "purchase", funnelStart.plusHours(25))
+        val report = funnels.report(experiment.id!!, funnelQuery())
+        val a = report.groups.single { it.variant == "A" }
+        assertEquals(listOf(2L, 1L), a.stages.map { it.users })
+        assertEquals(1L, a.pendingUsers)
+        val empty = report.groups.single { it.variant == "B" }
+        assertTrue(empty.stages.all { it.users == 0L && it.fromFirstPercent == null })
+        assertNull(empty.stages[1].fromPreviousPercent)
+    }
+
+    @Test
+    fun `funnel respects half open period boundaries strict timestamps and exposure identity`() {
+        val experiment = funnelExperiment()
+        funnelEvent(experiment, "at-start", "cart", funnelStart)
+        funnelEvent(experiment, "at-start", "purchase", funnelStart.plusNanos(1000))
+        funnelEvent(experiment, "same-time", "cart", funnelStart)
+        funnelEvent(experiment, "same-time", "purchase", funnelStart)
+        funnelEvent(experiment, "before", "cart", funnelStart.minusNanos(1000))
+        funnelEvent(experiment, "before", "purchase", funnelStart.plusHours(1))
+        funnelEvent(experiment, "at-end", "cart", funnelStart.plusDays(2))
+        funnelEvent(experiment, "at-end", "purchase", funnelStart.plusDays(2).plusHours(1))
+        conversions.save(ConversionLogEntity(experimentKey = experiment.key, variant = "A", userId = "no-exposure",
+            eventName = "cart", timestamp = funnelStart))
+        val wrong = impressions.save(ImpressionLogEntity(experimentKey = experiment.key, variant = "B", userId = "wrong", timestamp = funnelStart))
+        conversions.save(ConversionLogEntity(experimentKey = experiment.key, variant = "A", userId = "wrong",
+            eventName = "cart", timestamp = funnelStart, impressionId = wrong.id))
+        val report = funnels.report(experiment.id!!, funnelQuery())
+        assertEquals(listOf(2L, 1L), report.groups.single { it.variant == "A" }.stages.map { it.users })
+    }
+
+    @Test
+    fun `funnel isolates experiments exact event names and user variant histories`() {
+        val experiment = funnelExperiment()
+        val other = funnelExperiment("other")
+        funnelEvent(other, "other", "cart", funnelStart)
+        funnelEvent(other, "other", "purchase", funnelStart.plusHours(1))
+        funnelEvent(experiment, "shared", "cart", funnelStart, "A")
+        funnelEvent(experiment, "shared", "purchase", funnelStart.plusHours(1), "B")
+        funnelEvent(experiment, "case", "Cart", funnelStart)
+        funnelEvent(experiment, "case", "purchase", funnelStart.plusHours(1))
+        funnelEvent(experiment, "space", "cart ", funnelStart)
+        val report = funnels.report(experiment.id!!, funnelQuery())
+        assertEquals(listOf(1L, 0L), report.groups.single { it.variant == "A" }.stages.map { it.users })
+        assertEquals(listOf(0L, 0L), report.groups.single { it.variant == "B" }.stages.map { it.users })
+    }
+
+    @Test
+    fun `funnel keyset pages preserve a user spanning a page and include all later users`() {
+        val experiment = funnelExperiment()
+        val exposure = impressions.save(ImpressionLogEntity(experimentKey = experiment.key, variant = "A", userId = "000", timestamp = funnelStart))
+        conversions.saveAll((0..1000).map {
+            ConversionLogEntity(experimentKey = experiment.key, variant = "A", userId = "000", eventName = "cart",
+                timestamp = funnelStart, impressionId = exposure.id)
+        } + ConversionLogEntity(experimentKey = experiment.key, variant = "A", userId = "000", eventName = "purchase",
+            timestamp = funnelStart.plusHours(1), impressionId = exposure.id))
+        for (i in 1..1002) {
+            val user = "u-$i"
+            val shown = impressions.save(ImpressionLogEntity(experimentKey = experiment.key, variant = "A", userId = user, timestamp = funnelStart))
+            conversions.saveAll(listOf("cart", "purchase").mapIndexed { step, name ->
+                ConversionLogEntity(experimentKey = experiment.key, variant = "A", userId = user, eventName = name,
+                    timestamp = funnelStart.plusHours(step.toLong()), impressionId = shown.id)
+            })
+        }
+        val report = funnels.report(experiment.id!!, funnelQuery())
+        assertEquals(listOf(1003L, 1003L), report.groups.single { it.variant == "A" }.stages.map { it.users })
+    }
+
+    @Test
+    fun `funnel is available over authenticated HTTP and renders ordered statistics`() {
+        val experiment = funnelExperiment()
+        funnelEvent(experiment, "u", "cart", funnelStart)
+        funnelEvent(experiment, "u", "purchase", funnelStart.plusHours(1))
+        assertTrue(get("/admin/experiments/${experiment.id}").contains("순서형 퍼널 보기"))
+        assertTrue(get("/admin/experiments/${experiment.id}/funnel").contains("이벤트 순서"))
+        val query = mapOf("steps" to "cart\npurchase", "from" to funnelStart.toString(),
+            "until" to funnelStart.plusDays(2).toString(), "windowHours" to "24").entries.joinToString("&") {
+            URLEncoder.encode(it.key, StandardCharsets.UTF_8) + "=" + URLEncoder.encode(it.value, StandardCharsets.UTF_8)
+        }
+        val html = get("/admin/experiments/${experiment.id}/funnel?$query")
+        assertTrue(html.contains("100.00%"))
+        assertTrue(html.contains("관측 중 사용자"))
+        assertFalse(html.contains("NaN"))
+        val anonymous = HttpClient.newHttpClient()
+        try {
+            val response = anonymous.send(HttpRequest.newBuilder(uri("/admin/experiments/${experiment.id}/funnel?$query")).GET().build(),
+                HttpResponse.BodyHandlers.ofString())
+            assertEquals(302, response.statusCode())
+            assertTrue(response.headers().firstValue("Location").orElseThrow().endsWith("/login"))
+        } finally { anonymous.close() }
+    }
+
+    @Test
+    fun `funnel rejects invalid step lists periods and windows over HTTP`() {
+        val experiment = funnelExperiment()
+        fun request(values: Map<String, String>): HttpResponse<String> {
+            val query = (mapOf("steps" to "cart\npurchase", "from" to funnelStart.toString(),
+                "until" to funnelStart.plusDays(2).toString(), "windowHours" to "24") + values).entries.joinToString("&") {
+                URLEncoder.encode(it.key, StandardCharsets.UTF_8) + "=" + URLEncoder.encode(it.value, StandardCharsets.UTF_8)
+            }
+            return http.send(HttpRequest.newBuilder(uri("/admin/experiments/${experiment.id}/funnel?$query")).GET().build(),
+                HttpResponse.BodyHandlers.ofString())
+        }
+        for (values in listOf(mapOf("steps" to ""), mapOf("steps" to "cart"), mapOf("steps" to "cart\ncart"),
+            mapOf("steps" to (1..9).joinToString("\n") { "event-$it" }), mapOf("steps" to "x".repeat(256) + "\npurchase"),
+            mapOf("from" to "invalid"), mapOf("from" to ""), mapOf("from" to funnelStart.plusDays(2).toString()),
+            mapOf("from" to funnelStart.minusDays(366).toString()), mapOf("until" to "2999-01-01T00:00:00"),
+            mapOf("from" to "-999999999-01-01T00:00:00", "until" to "-999999999-01-02T00:00:00"),
+            mapOf("from" to funnelStart.plusNanos(1).toString()),
+            mapOf("windowHours" to "0"), mapOf("windowHours" to "721"), mapOf("windowHours" to "invalid"))) {
+            val response = request(values)
+            assertEquals(400, response.statusCode(), values.toString() + response.body())
+            assertFalse(response.body().contains("Exception"))
+        }
+    }
+
+    @Test
+    fun `viewer can read funnels and event names are escaped in the form and report`() {
+        val experiment = funnelExperiment()
+        val name = "</textarea><script>alert('event')</script>"
+        funnelEvent(experiment, "u", name, funnelStart)
+        funnelEvent(experiment, "u", "purchase", funnelStart.plusHours(1))
+        val viewer = HttpClient.newBuilder().cookieHandler(java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL)).build()
+        try {
+            val page = viewer.send(HttpRequest.newBuilder(uri("/login")).GET().build(), HttpResponse.BodyHandlers.ofString())
+            assertEquals(302, postRaw(viewer, "/login", mapOf("username" to "viewer", "password" to "prism-test-password",
+                "_csrf" to csrf(page.body()))).statusCode())
+            val query = mapOf("steps" to "$name\npurchase", "from" to funnelStart.toString(),
+                "until" to funnelStart.plusDays(2).toString(), "windowHours" to "24").entries.joinToString("&") {
+                URLEncoder.encode(it.key, StandardCharsets.UTF_8) + "=" + URLEncoder.encode(it.value, StandardCharsets.UTF_8)
+            }
+            val response = viewer.send(HttpRequest.newBuilder(uri("/admin/experiments/${experiment.id}/funnel?$query")).GET().build(),
+                HttpResponse.BodyHandlers.ofString())
+            assertEquals(200, response.statusCode(), response.body())
+            assertTrue(response.body().contains("100.00%"))
+            assertTrue(response.body().contains("&lt;script&gt;"))
+            assertFalse(response.body().contains(name))
+        } finally { viewer.close() }
+    }
+
+    private val funnelStart = java.time.LocalDateTime.of(2026, 1, 1, 0, 0)
+    private fun funnelQuery() = FunnelQuery(listOf("cart", "purchase"), funnelStart, funnelStart.plusDays(2), 24)
+    private fun funnelExperiment(key: String = "funnel"): ExperimentEntity {
+        val experiment = ExperimentEntity(key = key, description = "", goalEventName = "purchase")
+        experiment.addVariant(VariantEntity(name = "A", weight = 50))
+        experiment.addVariant(VariantEntity(name = "B", weight = 50))
+        return experiments.save(experiment)
+    }
+    private fun funnelEvent(experiment: ExperimentEntity, user: String, event: String,
+                            at: java.time.LocalDateTime, variant: String = "A") {
+        val exposure = impressions.save(ImpressionLogEntity(experimentKey = experiment.key, variant = variant, userId = user,
+            timestamp = funnelStart.minusDays(1)))
+        conversions.save(ConversionLogEntity(experimentKey = experiment.key, variant = variant, userId = user, eventName = event,
+            timestamp = at, impressionId = exposure.id))
     }
 
     @Test

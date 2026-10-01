@@ -4,7 +4,9 @@ import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.Conversi
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ImpressionLogEntity
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Repository
+import java.time.LocalDateTime
 
 @Repository
 interface ImpressionLogRepository : JpaRepository<ImpressionLogEntity, Long> {
@@ -35,6 +37,19 @@ private const val ELIGIBLE_CONVERSION = """
 
 @Repository
 interface ConversionLogRepository : JpaRepository<ConversionLogEntity, Long> {
+    // Read projections with a keyset cursor: never retain every user's event history in memory.
+    @Query("SELECT new io.github.silbaram.prism.infrastructure.persistence.jpa.repository.FunnelEventRow(" +
+        "c.id, c.userId, c.variant, c.eventName, c.timestamp) FROM ConversionLogEntity c WHERE " + ELIGIBLE_CONVERSION +
+        " AND c.eventName IN :eventNames AND c.timestamp >= :from AND c.timestamp < :until" +
+        " AND (:afterId = 0 OR c.userId > :afterUserId" +
+        " OR (c.userId = :afterUserId AND c.variant > :afterVariant)" +
+        " OR (c.userId = :afterUserId AND c.variant = :afterVariant AND c.timestamp > :afterTimestamp)" +
+        " OR (c.userId = :afterUserId AND c.variant = :afterVariant AND c.timestamp = :afterTimestamp AND c.id > :afterId))" +
+        " ORDER BY c.userId, c.variant, c.timestamp, c.id")
+    fun findFunnelEvents(experimentKey: String, eventNames: List<String>, from: LocalDateTime, until: LocalDateTime,
+                        afterUserId: String, afterVariant: String, afterTimestamp: LocalDateTime, afterId: Long,
+                        pageable: Pageable): List<FunnelEventRow>
+
     @Query("SELECT COUNT(c) FROM ConversionLogEntity c WHERE " + ELIGIBLE_CONVERSION +
         " AND c.userId = :userId AND c.variant = :variant AND c.eventName = :eventName AND c.timestamp >= :start AND c.timestamp < :end")
     fun countWindowConversions(experimentKey: String, userId: String, variant: String, eventName: String,
@@ -48,3 +63,6 @@ interface ConversionLogRepository : JpaRepository<ConversionLogEntity, Long> {
         ELIGIBLE_CONVERSION + " GROUP BY c.eventName, c.variant ORDER BY c.eventName, c.variant")
     fun countEventsByVariant(experimentKey: String): List<Array<Any>>
 }
+
+data class FunnelEventRow(val id: Long, val userId: String, val variant: String, val eventName: String,
+                          val timestamp: LocalDateTime)

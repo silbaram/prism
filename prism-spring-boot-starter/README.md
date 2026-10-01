@@ -140,7 +140,7 @@ val accepted = conversionTracker.trackConversionSafe("user-123", "checkout", "pu
 - `userIdParam` 속성 → 해당 파라미터에 `@PrismUserId` 추가.
 - `PrismConversionTracker` / 전환 Aspect 수동 생성 → `PrismClient` 대신 `PrismExperimentClient` 전달.
 
-기본 평가 모드는 LOCAL입니다. 속성 기반 타기팅에는 명시적 `experiments.assign(userId, key, attributes)`를 사용하세요. 현재 어노테이션은 사용자 ID만 추출합니다. 공개 API가 변경됐으므로 소비자를 다시 컴파일해야 합니다. [스키마와 API 업그레이드 순서](../docs/issue-28-phase-1.md)를 먼저 확인하세요.
+기본 평가 모드는 LOCAL입니다. 속성 기반 타기팅에는 명시적 `experiments.assign(userId, key, attributes)`를 사용하세요. 현재 어노테이션은 사용자 ID만 추출합니다. 공개 API가 변경됐으므로 소비자를 다시 컴파일해야 합니다. [DB 업그레이드 순서](../README.md#db-업그레이드)를 먼저 확인하세요.
 
 ```bash
 ./gradlew :prism-spring-boot-starter:test
@@ -152,9 +152,9 @@ LOCAL 노출은 공유 client 수명 동안 사용자×실험별로 중복 제�
 
 일일 사용자 수보다 **client 수명 동안 해당 인스턴스에 도달하는 누적 고유 사용자×실험 조합 수**와 여유분으로 한도를 정하세요. 동일 조합의 재방문은 추가되지 않지만 신규 사용자와 신규 실험은 누적됩니다. 모집단 목록은 누적 고유 사용자 수를 별도로 고려하세요. 한도를 높이기 전 분석 메타데이터를 포함한 실제 힙 사용량을 측정하세요. [SDK 사용량·사이징 설명](../prism-sdk/README.md)을 참고하세요.
 
-어노테이션과 Strategy는 실제 경험을 제공하는 시점에 사용합니다. 화면 준비와 노출이 다르면 SDK의 `evaluate()` / `recordExposure()`로 분리하세요. [Phase 2 정책](../docs/issue-28-phase-2.md)을 참고하세요.
+어노테이션과 Strategy는 실제 경험을 제공하는 시점에 사용합니다. 화면 준비와 노출이 다르면 SDK의 `evaluate()` / `recordExposure()`로 분리하세요. [SDK 운영 계약](../README.md#sdk-운영-계약)을 참고하세요.
 
-Phase 3 API는 설정·이벤트·기존 원격 API 모두 키를 요구합니다. 키는 서버의 `PRISM_API_KEYS`와 일치해야 합니다. 참여 비율·기간을 쓰기 전에 모든 소비자를 새 SDK/스타터로 갱신하세요. [Phase 3 운영·배포 가이드](../docs/issue-28-phase-3.md)를 참고하세요.
+Phase 3 API는 설정·이벤트·기존 원격 API 모두 키를 요구합니다. 키는 서버의 `PRISM_API_KEYS`와 일치해야 합니다. 참여 비율·기간을 쓰기 전에 모든 소비자를 새 SDK/스타터로 갱신하세요. [DB 업그레이드](../README.md#db-업그레이드)와 [인증 안내](../README.md#인증)를 참고하세요.
 
 ## Phase 4 선택 설정
 
@@ -167,8 +167,8 @@ prism:
 
 SSE는 정기 폴링을 유지하면서 변경 전파를 빠르게 합니다. 저장소 디렉터리를 생략하면 최초 배정은 메모리에만 유지합니다. 디렉터리는 환경별로 분리하고 영속 볼륨을 사용하세요. 여러 호스트 간 공유는 사용자 정의 `StickyAssignmentStore`를 사용하는 `PrismClient` 빈으로 구성합니다.
 
-레이어와 영구 홀드아웃은 Admin에서 설정합니다. 누적 효과 계측은 `PrismExperimentClient.recordPopulationExposure`/`trackPopulationConversion`으로 명시적으로 실행합니다. [Phase 4 가이드](../docs/issue-28-phase-4.md)를 참고하세요.
+레이어와 영구 홀드아웃은 Admin에서 설정합니다. 누적 효과 계측은 `PrismExperimentClient.recordPopulationExposure`/`trackPopulationConversion`으로 명시적으로 실행합니다. [레이어와 홀드아웃 안내](../README.md#레이어와-홀드아웃)를 참고하세요.
 
 ## Phase 5 고급 분석
 
-주입된 `PrismExperimentClient`의 `assign(userId, experimentKey, attributes, analysis)`에 `ExposureAnalysisContext`를 전달해 사전 세그먼트와 CUPED 지표를 수집합니다. 어노테이션은 이 정보를 자동 추출하지 않습니다. 실험 시작 전에 Admin에서 분석 계획을 고정해야 하며, 서버 마이그레이션 033과 전체 API/Admin 업그레이드를 먼저 완료하세요. [고급 분석과 계측 가이드](../docs/issue-28-phase-5.md)를 참고하세요.
+주입된 `PrismExperimentClient`의 `assign(userId, experimentKey, attributes, analysis)`에 `ExposureAnalysisContext`를 전달해 사전 세그먼트와 CUPED 지표를 수집합니다. 어노테이션은 이 정보를 자동 추출하지 않습니다. 실험 시작 전에 Admin에서 분석 계획을 고정해야 하며, [DB 업그레이드](../README.md#db-업그레이드)와 전체 API/Admin 배포를 먼저 완료하세요. [고급 분석과 계측 가이드](../README.md#고급-분석)를 참고하세요.
