@@ -21,6 +21,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.LocalDateTime
+import java.util.Base64
 import javax.sql.DataSource
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [
@@ -235,6 +236,86 @@ class JourneyPatternUsersIntegrationTest {
         }
     }
 
+    @Test fun `submitted goal filters preserve newline and unicode variants through user and timeline pagination`() {
+        val variants = listOf("A\nB", "A\rB", "A\r\nB", "한글😀+%&")
+        for ((index, variant) in variants.withIndex()) {
+            repeat(index + 2) { path("u-$index-reached-$it", listOf("cart", "checkout", "purchase"), variant) }
+            path("u-$index-missing", listOf("cart", "checkout", "failure"), variant)
+        }
+        loggedIn("admin").use { client ->
+            for ((index, variant) in variants.withIndex()) {
+                val reportValues = mapOf("from" to from.toString(), "until" to until.toString(),
+                    "variant" to variant, "depth" to "2", "top" to "3")
+                val countLink = countLink(ok(client, "$base?" + params(reportValues)))
+                assertEquals(variant, queryValues(countLink)["variant"])
+                val initial = ok(client, countLink)
+                assertPatternCounts(initial, index + 3, index + 3, index + 2)
+                val form = Regex("<form\\b[^>]*action=\"([^\"]*/journeys/patterns/users)\"[^>]*>([\\s\\S]*?)</form>")
+                    .find(initial) ?: error("Missing pattern user filter form")
+                val hidden = Regex("<input\\b[^>]*>").findAll(form.groupValues[2]).map { input ->
+                    Regex("([A-Za-z][A-Za-z0-9:-]*)=\"([^\"]*)\"").findAll(input.value).associate {
+                        it.groupValues[1] to HtmlUtils.htmlUnescape(it.groupValues[2])
+                    }
+                }.filter { it["type"] == "hidden" }.associate { it.getValue("name") to it.getValue("value") }
+                assertFalse(hidden.containsKey("variant"), "Raw newlines cannot survive browser form submission unchanged")
+                val token = hidden.getValue("variantToken")
+                assertTrue(token.matches(Regex("[A-Za-z0-9_-]+")))
+                assertEquals(variant, String(Base64.getUrlDecoder().decode(token), Charsets.UTF_8))
+                val action = HtmlUtils.htmlUnescape(form.groupValues[1])
+                val first = ok(client, action + "?" + params(hidden + mapOf("goalState" to "REACHED", "size" to "1")))
+                assertPatternCounts(first, index + 3, index + 2, index + 2)
+                val missing = ok(client, action + "?" + params(hidden + mapOf("goalState" to "NOT_REACHED", "size" to "1")))
+                assertPatternCounts(missing, index + 3, 1, index + 2)
+                assertTrue(missing.contains("u-$index-missing"))
+                val secondLink = href(first, "다음 사용자")
+                val pageValues = queryValues(secondLink)
+                assertEquals(variant, pageValues["variant"])
+                assertFalse(pageValues.containsKey("variantToken"), "Links keep the canonical raw variant parameter")
+                val second = ok(client, secondLink)
+                assertPatternCounts(second, index + 3, index + 2, index + 2)
+                val timelineLink = Regex("href=\"([^\"]*/journeys/user[^\"]+)\"").find(second)!!.groupValues[1]
+                    .let(HtmlUtils::htmlUnescape)
+                assertEquals(variant, queryValues(timelineLink)["variant"])
+                val timeline = ok(client, timelineLink)
+                val nextTimelineLink = href(timeline, "다음 행동")
+                assertEquals(variant, queryValues(nextTimelineLink)["variant"])
+                val back = href(ok(client, nextTimelineLink), "경로 사용자 목록")
+                assertEquals(pageValues, queryValues(back))
+                assertPatternCounts(ok(client, back), index + 3, index + 2, index + 2)
+                val reportBack = href(second, "경로 패턴으로 돌아가기")
+                assertEquals(reportValues, queryValues(reportBack))
+                ok(client, reportBack)
+            }
+        }
+    }
+
+    @Test fun `variant tokens reject malformed encodings invalid identities and conflicting raw variants`() {
+        path("u", listOf("cart", "purchase"))
+        val pathKey = patterns.report(experiment.id!!, query.copy(variant = "A")).groups.single().patterns.single().path.key
+        val common = mapOf("from" to from.toString(), "until" to until.toString(), "pathKey" to pathKey)
+        fun encoded(value: String) = Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray(Charsets.UTF_8))
+        val invalidUtf8 = listOf(byteArrayOf(0xc3.toByte(), 0x28), byteArrayOf(0x80.toByte()),
+            byteArrayOf(0xed.toByte(), 0xa0.toByte(), 0x80.toByte())).map { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
+        loggedIn("admin").use { client ->
+            assertPatternCounts(ok(client, "$base/users?" + params(common + ("variantToken" to encoded("A")))), 1, 1, 1)
+            for (token in listOf("", "A", "QQ==", "QQ+", "QQ/", "QQ\n", "QQ ", "한글", "A".repeat(1021),
+                encoded(" \r\n"), encoded("x".repeat(256))) + invalidUtf8) {
+                val response = get(client, "$base/users?" + params(common + ("variantToken" to token)))
+                assertEquals(400, response.statusCode(), "Invalid token: $token\n${response.body()}")
+                assertFalse(response.body().contains("org.springframework"))
+            }
+            for (raw in listOf("A", "B", "")) {
+                val response = get(client, "$base/users?" + params(common + mapOf("variant" to raw, "variantToken" to encoded("A"))))
+                assertEquals(400, response.statusCode(), response.body())
+            }
+            assertEquals(400, get(client, "$base/users?" + params(common)).statusCode())
+            val longest = "한".repeat(255)
+            path("longest", listOf("cart", "purchase"), longest)
+            assertEquals(1020, encoded(longest).length)
+            assertPatternCounts(ok(client, "$base/users?" + params(common + ("variantToken" to encoded(longest)))), 1, 1, 1)
+        }
+    }
+
     @Test fun `maximum length event names use compact structural keys in user and timeline links`() {
         val steps = (1..8).map { "단".repeat(254) + it }
         path("maximum", steps)
@@ -258,6 +339,13 @@ class JourneyPatternUsersIntegrationTest {
     private fun countLink(html: String): String {
         val cell = Regex("<td\\b[^>]*class=\"[^\"]*pattern-users[^\"]*\"[^>]*>([\\s\\S]*?)</td>").find(html)!!.groupValues[1]
         return Regex("href=\"([^\"]+)\"").find(cell)!!.groupValues[1].let(HtmlUtils::htmlUnescape)
+    }
+    private fun assertPatternCounts(html: String, total: Int, matched: Int, goals: Int) {
+        val summary = Regex("<div\\b[^>]*id=\"patternUsersSummary\"[^>]*>([\\s\\S]*?)</div>")
+            .find(html)?.groupValues?.get(1) ?: error("Missing pattern user summary")
+        for ((label, count) in listOf("이 경로 전체 사용자" to total, "현재 필터에 맞는 사용자" to matched, "발생 사용자" to goals)) {
+            assertTrue(Regex("${Regex.escape(label)}\\s*<strong[^>]*>$count</strong>").containsMatchIn(summary), summary)
+        }
     }
     private fun href(html: String, label: String) = Regex("<a\\b[^>]*href=\"([^\"]+)\"[^>]*>\\s*${Regex.escape(label)}\\s*</a>")
         .find(html)?.groupValues?.get(1)?.let(HtmlUtils::htmlUnescape) ?: error("Missing link $label")

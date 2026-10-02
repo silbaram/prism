@@ -32,7 +32,7 @@
     <form method="get" th:action="@{/admin/experiments/{id}/journeys/patterns/users(id=${experiment.id})}" class="card p-3 mb-3">
         <input type="hidden" name="from" th:value="${query.from}">
         <input type="hidden" name="until" th:value="${query.until}">
-        <input type="hidden" name="variant" th:value="${query.variant}">
+        <input type="hidden" name="variantToken" th:value="${variantToken}">
         <input type="hidden" name="depth" th:value="${query.depth}">
         <input type="hidden" name="top" th:value="${query.top}">
         <input type="hidden" name="pathKey" th:value="${pathKey}">
