@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div>
+    <h2>이벤트 카탈로그</h2>
+    <p>이 Prism 서버의 등록 이벤트, 실험 목표·가드레일, 유효한 노출에 귀속된 수집 이벤트를 함께 확인합니다.
+        이름의 대소문자와 앞뒤 공백을 구분합니다. 등록만으로 이벤트가 수집되거나 실험 설정이 바뀌지는 않습니다.</p>
+    <form method="get" th:action="@{/admin/events}" class="d-flex gap-2 mb-3">
+        <label for="eventQuery" class="visually-hidden">이벤트 이름 검색</label>
+        <input id="eventQuery" name="q" type="search" maxlength="255" class="form-control" th:value="${q}" placeholder="이벤트 이름 검색">
+        <button class="btn btn-primary">검색</button>
+    </form>
+    <p th:if="${catalog.truncated}" class="alert alert-info">검색 결과 중 최대 100개를 표시합니다. 검색어를 구체적으로 입력하세요.</p>
+    <div class="table-responsive">
+        <table class="table table-striped">
+            <thead><tr><th>이벤트 이름</th><th>설명</th><th>등록 상태</th><th>수집 상태</th><th>발생 횟수</th><th>수집된 실험 수</th><th>최근 발생 (UTC)</th></tr></thead>
+            <tbody>
+            <tr th:each="event : ${catalog.items}">
+                <td><code style="white-space: pre-wrap" th:text="${event.name}"></code></td>
+                <td th:text="${event.description}"></td>
+                <td th:text="${event.registered ? '카탈로그 등록' : '실험 설정 또는 수집으로 발견'}"></td>
+                <td th:text="${event.events > 0 ? '수집 확인' : '아직 수집되지 않음'}"></td>
+                <td th:text="${event.events}"></td><td th:text="${event.experiments}"></td>
+                <td th:text="${event.lastOccurredAt == null ? '—' : event.lastOccurredAt}"></td>
+            </tr>
+            <tr th:if="${catalog.items.empty}"><td colspan="7">일치하는 이벤트가 없습니다. 새 이벤트를 등록하거나 SDK로 이벤트를 수집하세요.</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p class="text-muted">발생 횟수는 전체 실험의 유효한 이벤트 행 수입니다. 최근 발생 시각은 저장된 이벤트 시각이며 서버 수신 시각이 아닙니다.
+        전환율은 각 실험의 이벤트별 집계에서 확인하세요.</p>
+    <section th:if="${canManageExperiments}" class="card p-3">
+        <h3>새 이벤트 등록</h3>
+        <p>수집 코드 적용 전에도 이름과 설명을 등록할 수 있습니다. 이미 수집한 이름에도 설명을 등록할 수 있습니다.</p>
+        <p th:if="${formError != null}" class="alert alert-danger" th:text="${formError}"></p>
+        <form method="post" th:action="@{/admin/events}">
+            <label for="eventName" class="form-label">이벤트 이름</label>
+            <input id="eventName" name="name" required maxlength="255" class="form-control mb-3" th:value="${name}" placeholder="purchase">
+            <label for="eventDescription" class="form-label">설명</label>
+            <textarea id="eventDescription" name="description" maxlength="1000" class="form-control mb-3" th:text="${description}" placeholder="결제 성공과 주문 저장 완료 후 기록"></textarea>
+            <button class="btn btn-primary">이벤트 등록</button>
+        </form>
+    </section>
+</div>
+</th:block>
+</html>

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div>
+    <div class="d-flex justify-content-between mb-3">
+        <h2 th:text="${experiment.key + ' · SDK 적용 가이드'}"></h2>
+        <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}(id=${experiment.id})}">실험 상세</a>
+    </div>
+    <p>Spring Boot 4 · JDK 21 기준입니다. SDK는 애플리케이션에서 공유하고 사용자 ID는 모든 단계에서 동일하게 전달합니다.</p>
+    <p th:if="${experiment.status.name() != 'ACTIVE'}" class="alert alert-info">현재 실험은 ACTIVE 상태가 아닙니다. 새로운 노출을 확인하려면 개발 환경에서 실험을 활성화하고 설정이 동기화될 때까지 기다리세요.</p>
+    <section class="card p-3 mb-3">
+        <h3>1. 의존성과 연결 설정</h3>
+        <p>SDK와 스타터 아티팩트를 사용하는 Maven 저장소에 먼저 게시해야 합니다. 공개 저장소에 이 버전이 게시되어 있다고 가정하지 않습니다.
+            로컬 개발에서는 Prism 저장소에서 다음 명령을 실행하세요.</p>
+        <pre class="border p-2"><code>./gradlew :prism-common:publishToMavenLocal :prism-core:publishToMavenLocal :prism-sdk:publishToMavenLocal :prism-spring-boot-starter:publishToMavenLocal</code></pre>
+        <p>소비 애플리케이션의 <code>build.gradle.kts</code>에 추가합니다. 사내 저장소를 사용하면 <code>mavenLocal()</code>을 해당 저장소 설정으로 바꾸세요.</p>
+        <pre class="border p-2"><code th:text="${'repositories { mavenLocal(); mavenCentral() }' + '&#10;' + 'dependencies {' + '&#10;' + '    implementation(&quot;io.github.silbaram.prism:prism-spring-boot-starter:' + sdkVersion + '&quot;)' + '&#10;' + '}'}"></code></pre>
+        <p><code>application.yml</code>에 연결할 API 주소와 키를 환경 변수로 전달합니다. API 서버가 허용하는 키를 사용하세요.</p>
+        <pre class="border p-2"><code>prism:
+  client:
+    url: ${PRISM_API_URL}
+    api-key: ${PRISM_CLIENT_API_KEY}
+    evaluation-mode: LOCAL</code></pre>
+    </section>
+    <section class="card p-3 mb-3">
+        <h3>2. 실험과 이벤트 코드</h3>
+        <form method="get" th:action="@{/admin/experiments/{id}/integration(id=${experiment.id})}" class="d-flex gap-2 mb-3">
+            <label for="guideEvent" class="visually-hidden">추적할 이벤트</label>
+            <input id="guideEvent" name="eventName" required maxlength="255" class="form-control" list="guideEventOptions" data-event-search
+                   th:value="${eventName}" placeholder="추적할 이벤트 이름">
+            <datalist id="guideEventOptions"></datalist>
+            <button class="btn btn-primary">적용 코드 보기</button>
+        </form>
+        <p>처음 적용할 때는 목표 이벤트가 선택됩니다. 다른 이벤트를 조회해도 실험의 목표는 바뀌지 않습니다.</p>
+        <div th:if="${examples != null}">
+            <div class="d-flex justify-content-between"><h4>Java</h4><button type="button" class="btn btn-outline-secondary" data-copy-code="javaCode">Java 코드 복사</button></div>
+            <pre class="border p-2"><code id="javaCode" th:text="${examples.java}"></code></pre>
+            <div class="d-flex justify-content-between"><h4>Kotlin</h4><button type="button" class="btn btn-outline-secondary" data-copy-code="kotlinCode">Kotlin 코드 복사</button></div>
+            <pre class="border p-2"><code id="kotlinCode" th:text="${examples.kotlin}"></code></pre>
+            <p id="copyStatus" role="status" aria-live="polite"></p>
+        </div>
+        <ul>
+            <li><code>expose()</code>의 <code>assigned</code>와 <code>variant</code>를 확인해 해당 경험을 제공합니다. 실패 시 기본 경험을 사용합니다. 타기팅에 필요한 속성은 <code>attributes</code>에 전달하세요.</li>
+            <li>화면 준비와 실제 노출 시점이 다르면 <code>PrismClient.evaluate()</code>와 <code>recordExposure()</code>를 사용합니다.</li>
+            <li><code>recordEvent()</code>는 행동 성공과 DB 커밋 이후 호출합니다. 비동기 결제는 완료를 확인한 시점에 호출하세요. 추적 성공 여부로 구매 결과를 바꾸지 않습니다.</li>
+            <li>LOCAL의 <code>true</code>는 메모리 큐 등록 성공입니다. 실제 수집은 배치 전송 후 확인합니다. <code>false</code>는 노출 없음·큐 포화 등을 포함하므로 SDK 로그와 카운터도 확인하세요.</li>
+            <li>여러 프로세스에서 원래 노출에 연결하려면 <code>AssignmentOutcome</code>을 전달해 <code>experiments.track(outcome, eventName)</code>을 사용합니다. 현재 예제는 최근 노출을 조회합니다.</li>
+        </ul>
+    </section>
+    <section class="card p-3 mb-3">
+        <h3>3. 수집과 결과 확인</h3>
+        <p>개발 환경에서 실제 기능과 이벤트를 실행한 뒤 실험 상세의 노출 사용자 수와 이벤트별 집계를 확인하세요.
+            이름의 대소문자·공백, 같은 사용자 ID, 선행 노출, SDK 전송 로그를 차례로 확인합니다.</p>
+        <div class="d-flex gap-2">
+            <a class="btn btn-primary" th:href="@{/admin/experiments/{id}/events(id=${experiment.id},eventName=${eventName})}">이 이벤트 수집 확인</a>
+            <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/funnel(id=${experiment.id})}">순서형 퍼널</a>
+            <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/journeys(id=${experiment.id})}">사용자 여정 보기</a>
+        </div>
+        <p class="mt-3 mb-0">순서형 퍼널은 제한 시간이 끝나지 않은 사용자를 관측 중으로 분리합니다. 카탈로그 등록이나 코드 복사만으로 데이터가 만들어지지는 않습니다.</p>
+        <p class="mt-2 mb-0">사용자 여정에서 SDK에 전달한 사용자 ID로 실제 기록을 확인하세요. 구매 전 경로를 보려면 중간 행동·실패·재시도도 같은 사용자 ID로 기록해야 합니다.</p>
+    </section>
+    <script th:src="@{/js/event-picker.js}" th:data-suggestions-url="@{/admin/events/suggestions}" defer></script>
+    <script th:src="@{/js/copy-code.js}" defer></script>
+</div>
+</th:block>
+</html>

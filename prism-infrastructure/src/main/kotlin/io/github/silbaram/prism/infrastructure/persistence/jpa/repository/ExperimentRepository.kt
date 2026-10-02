@@ -12,6 +12,12 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface ExperimentRepository : JpaRepository<ExperimentEntity, Long> {
+    @Query("SELECT DISTINCT e.goalEventName FROM ExperimentEntity e WHERE e.goalEventName LIKE :pattern ESCAPE '!' ORDER BY e.goalEventName")
+    fun findGoalNames(pattern: String, pageable: Pageable): List<String>
+
+    @Query("SELECT DISTINCT g FROM ExperimentEntity e JOIN e.guardrailEventNames g WHERE g LIKE :pattern ESCAPE '!' ORDER BY g")
+    fun findGuardrailNames(pattern: String, pageable: Pageable): List<String>
+
     fun findAllByLayerKey(layerKey: String): List<ExperimentEntity>
     @Query("SELECT e.id FROM ExperimentEntity e WHERE (e.status = 'SCHEDULED' AND e.startsAt <= :now) OR " +
         "(e.status IN ('SCHEDULED', 'ACTIVE', 'PAUSED') AND e.endsAt <= :now)")

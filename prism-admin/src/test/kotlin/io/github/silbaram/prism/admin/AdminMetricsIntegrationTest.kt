@@ -5,6 +5,8 @@ import io.github.silbaram.prism.infrastructure.persistence.jpa.repository.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.core.env.Environment
@@ -16,6 +18,8 @@ import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import io.github.silbaram.prism.admin.service.ExperimentService
+import io.github.silbaram.prism.admin.service.AnalyticsService
+import io.github.silbaram.prism.admin.service.EventCatalogService
 import io.github.silbaram.prism.admin.service.FunnelAnalysisService
 import io.github.silbaram.prism.admin.service.FunnelQuery
 import io.github.silbaram.prism.admin.service.dto.*
@@ -31,7 +35,7 @@ import java.util.concurrent.*
     "spring.datasource.url=jdbc:h2:mem:adminmetrics;MODE=MySQL;DB_CLOSE_DELAY=-1",
     "spring.datasource.driver-class-name=org.h2.Driver", "spring.datasource.username=sa", "spring.datasource.password=",
     "spring.jpa.hibernate.ddl-auto=create-drop", "spring.sql.init.mode=never",
-    "spring.jpa.properties.hibernate.show_sql=false"
+    "spring.jpa.properties.hibernate.show_sql=false", "server.forward-headers-strategy=framework"
 ])
 class AdminMetricsIntegrationTest {
     @Autowired lateinit var experiments: ExperimentRepository
@@ -41,6 +45,9 @@ class AdminMetricsIntegrationTest {
     @Autowired lateinit var changes: ExperimentChangeRepository
     @Autowired lateinit var service: ExperimentService
     @Autowired lateinit var funnels: FunnelAnalysisService
+    @Autowired lateinit var analytics: AnalyticsService
+    @Autowired lateinit var catalog: EventCatalogService
+    @Autowired lateinit var definitions: EventDefinitionRepository
     @Autowired lateinit var transactions: PlatformTransactionManager
     @Autowired lateinit var dataSource: javax.sql.DataSource
     @Autowired lateinit var policies: PopulationPolicyRepository
@@ -68,6 +75,7 @@ class AdminMetricsIntegrationTest {
     }
     @BeforeEach
     fun clean() {
+        definitions.deleteAll()
         conversions.deleteAll(); impressions.deleteAll(); experiments.deleteAll(); changes.deleteAll()
         populationConversions.deleteAll(); populationExposures.deleteAll(); layers.deleteAll()
         policies.save(PopulationPolicyEntity())
@@ -75,6 +83,250 @@ class AdminMetricsIntegrationTest {
         val login = postRaw(http, "/login", mapOf("username" to "admin", "password" to "prism-test-password", "_csrf" to csrf(loginPage.body())))
         assertEquals(302, login.statusCode(), login.body())
         assertFalse(login.headers().firstValue("Location").orElse("").contains("error"))
+    }
+
+    @Test
+    fun `experiment list renders its content for both empty and populated databases`() {
+        val empty = get("/admin/experiments")
+        assertTrue(empty.contains("<h2>실험 목록</h2>"))
+        assertTrue(empty.contains("실험 Key 검색"))
+        assertTrue(empty.contains("새 실험 만들기"))
+        assertTrue(empty.contains("생성된 실험이 없습니다."))
+        funnelExperiment("preview-render-check")
+        val populated = get("/admin/experiments")
+        assertTrue(populated.contains("<h2>실험 목록</h2>"))
+        assertTrue(populated.contains("preview-render-check"))
+        assertTrue(populated.contains("상세/통계"))
+        assertFalse(populated.contains("생성된 실험이 없습니다."))
+    }
+
+    @Test
+    fun `catalog joins planned configured and attributed events without counting invalid logs`() {
+        catalog.register("planned", "before implementation")
+        val experiment = experiments.save(ExperimentEntity(key = "catalog", description = "", goalEventName = "goal",
+            guardrailEventNames = mutableSetOf("failure")))
+        val other = funnelExperiment("catalog-other")
+        funnelEvent(experiment, "u", "observed", funnelStart)
+        funnelEvent(experiment, "u", "observed", funnelStart.plusHours(1))
+        funnelEvent(other, "u", "observed", funnelStart.plusHours(2))
+        conversions.save(ConversionLogEntity(experimentKey = experiment.key, variant = "A", userId = "orphan",
+            eventName = "invalid", timestamp = funnelStart))
+        val items = catalog.catalog("").items.associateBy { it.name }
+        assertEquals(setOf("planned", "goal", "failure", "purchase", "observed"), items.keys)
+        assertTrue(items.getValue("planned").registered)
+        assertEquals("before implementation", items.getValue("planned").description)
+        assertEquals(0L, items.getValue("planned").events)
+        assertNull(items.getValue("planned").lastOccurredAt)
+        val observed = items.getValue("observed")
+        assertFalse(observed.registered)
+        assertEquals(3L, observed.events)
+        assertEquals(2L, observed.experiments)
+        assertEquals(funnelStart.plusHours(2), observed.lastOccurredAt)
+        catalog.register("observed", "now documented")
+        assertEquals(3L, catalog.catalog("observed").items.single().events)
+        assertTrue(get("/admin/events").contains("now documented"))
+    }
+
+    @Test
+    fun `catalog search treats wildcards literally preserves identities and bounds suggestions`() {
+        listOf("Cart", "cart", "cart ", "a%b", "a_b", "a!b").forEach { catalog.register(it, "") }
+        assertEquals(listOf("Cart", "cart", "cart "), catalog.suggestions("").names.filter { it.startsWith("cart", true) })
+        for (literal in listOf("%", "_", "!")) {
+            assertEquals(listOf("a${literal}b"), catalog.suggestions(literal).names)
+        }
+        assertEquals(listOf("cart "), catalog.suggestions("cart ").names)
+        definitions.saveAll((0..104).map { EventDefinitionEntity(name = "bounded-${it.toString().padStart(3, '0')}") })
+        val result = catalog.suggestions("bounded-")
+        assertEquals(100, result.names.size)
+        assertTrue(result.truncated)
+        assertEquals("bounded-099", result.names.last())
+        assertEquals(listOf("bounded-104"), catalog.suggestions("bounded-104").names)
+        assertTrue(get("/admin/events/suggestions?q=cart").contains("cart "))
+        assertTrue(get("/admin/events?q=bounded-").contains("최대 100개"))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["registered", "goal", "guardrail", "observed"])
+    fun `exact catalog matches remain discoverable after the substring result limit`(source: String) {
+        val exact = "purchase_%! "
+        val names = (0..104).map { "a${it.toString().padStart(3, '0')}-$exact" } + exact
+        when (source) {
+            "registered" -> definitions.saveAll(names.map { EventDefinitionEntity(name = it, description = "registration") })
+            "goal" -> experiments.saveAll(names.mapIndexed { index, name ->
+                ExperimentEntity(key = "goal-$index", description = "", goalEventName = name)
+            })
+            "guardrail" -> experiments.saveAll(names.mapIndexed { index, name ->
+                ExperimentEntity(key = "guardrail-$index", description = "", guardrailEventNames = mutableSetOf(name))
+            })
+            "observed" -> {
+                val experiment = funnelExperiment()
+                names.forEach { funnelEvent(experiment, "u", it, funnelStart) }
+            }
+        }
+        val matches = catalog.suggestions(exact)
+        assertTrue(matches.truncated)
+        assertEquals(100, matches.names.size)
+        assertEquals(exact, matches.names.first())
+        assertEquals(exact, catalog.catalog(exact).items.first().name)
+    }
+
+    @Test
+    fun `catalog registration redirects to the exact new event instead of the first hundred entries`() {
+        definitions.saveAll((0..104).map { EventDefinitionEntity(name = "a-$it") })
+        val name = "z-purchase 한글 +?&#/%! "
+        val created = post("/admin/events", mapOf("name" to name))
+        assertEquals(302, created.statusCode())
+        val location = URI.create(created.headers().firstValue("Location").orElseThrow())
+        assertNotNull(location.rawQuery)
+        assertEquals("q=$name", java.net.URLDecoder.decode(location.rawQuery, StandardCharsets.UTF_8))
+        assertTrue(get(location.rawPath + "?" + location.rawQuery).contains("z-purchase 한글"))
+    }
+
+    @Test
+    fun `catalog navigation and suggestions retain the proxy context path`() {
+        val experiment = funnelExperiment()
+        for (path in listOf("/admin/events", "/admin/experiments/${experiment.id}/integration", "/admin/experiments/new")) {
+            val response = http.send(HttpRequest.newBuilder(uri(path)).header("X-Forwarded-Prefix", "/prism").GET().build(),
+                HttpResponse.BodyHandlers.ofString())
+            assertEquals(200, response.statusCode(), response.body())
+            assertTrue(response.body().contains("href=\"/prism/admin/events\""), response.body())
+            assertFalse(response.body().contains("href=\"/admin/events\""), response.body())
+            if (path != "/admin/events") {
+                assertTrue(response.body().contains("data-suggestions-url=\"/prism/admin/events/suggestions\""))
+            }
+        }
+    }
+
+    @Test
+    fun `integration guide renders complete copyable snippets once`() {
+        val experiment = funnelExperiment()
+        val html = get("/admin/experiments/${experiment.id}/integration")
+        val dependency = Regex("<code[^>]*>(.*?)</code>", RegexOption.DOT_MATCHES_ALL).findAll(html)
+            .map { org.springframework.web.util.HtmlUtils.htmlUnescape(it.groupValues[1]) }
+            .first { it.startsWith("repositories") }
+        assertEquals("repositories { mavenLocal(); mavenCentral() }\ndependencies {\n    implementation(\"io.github.silbaram.prism:prism-spring-boot-starter:0.0.1-SNAPSHOT\")\n}", dependency)
+        assertEquals(1, Regex("id=\"javaCode\"").findAll(html).count())
+        assertEquals(1, Regex("id=\"kotlinCode\"").findAll(html).count())
+    }
+
+    @Test
+    fun `catalog registration validates input escapes HTML and requires admin and CSRF`() {
+        val name = "</code><script>alert('event')</script>"
+        assertEquals(302, post("/admin/events", mapOf("name" to name, "description" to "<b>description</b>")).statusCode())
+        val html = get("/admin/events")
+        assertFalse(html.contains(name))
+        assertTrue(html.contains("&lt;script&gt;"))
+        assertTrue(html.contains("&lt;b&gt;description&lt;/b&gt;"))
+        for (fields in listOf(mapOf("name" to name), mapOf("name" to " "), mapOf("name" to "a\nb"),
+            mapOf("name" to "x".repeat(256)), mapOf("name" to "valid", "description" to "x".repeat(1001)))) {
+            val response = post("/admin/events", fields)
+            assertEquals(400, response.statusCode(), response.body())
+            assertFalse(response.body().contains("Exception"))
+        }
+        assertEquals(403, postRaw(http, "/admin/events", mapOf("name" to "no-csrf")).statusCode())
+        assertEquals(1L, definitions.count())
+        val experiment = funnelExperiment()
+        HttpClient.newBuilder().cookieHandler(java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL)).build().use { viewer ->
+            val login = viewer.send(HttpRequest.newBuilder(uri("/login")).GET().build(), HttpResponse.BodyHandlers.ofString())
+            assertEquals(302, postRaw(viewer, "/login", mapOf("username" to "viewer", "password" to "prism-test-password",
+                "_csrf" to csrf(login.body()))).statusCode())
+            for (path in listOf("/admin/events", "/admin/events/suggestions", "/admin/experiments/${experiment.id}/integration")) {
+                val response = viewer.send(HttpRequest.newBuilder(uri(path)).GET().build(), HttpResponse.BodyHandlers.ofString())
+                assertEquals(200, response.statusCode(), response.body())
+                if (path == "/admin/events") {
+                    assertFalse(response.body().contains("새 이벤트 등록"))
+                    assertEquals(403, postRaw(viewer, path, mapOf("name" to "forbidden", "_csrf" to csrf(response.body()))).statusCode())
+                }
+            }
+        }
+        HttpClient.newHttpClient().use { anonymous ->
+            for (path in listOf("/admin/events", "/admin/events/suggestions", "/admin/experiments/${experiment.id}/integration")) {
+                assertEquals(302, anonymous.send(HttpRequest.newBuilder(uri(path)).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode())
+            }
+        }
+        assertEquals(1L, definitions.count())
+    }
+
+    @Test
+    fun `event CVR uses unique exposed users includes zero rows and leaves goal metrics unchanged`() {
+        val experiment = service.createExperiment(ExperimentCreateDto("event-cvr", "", "purchase",
+            listOf(VariantDto("A", 50), VariantDto("B", 50), VariantDto("C", 0)), guardrailEventNames = setOf("failure")))
+        funnelEvent(experiment, "u", "cart", funnelStart)
+        funnelEvent(experiment, "u", "cart", funnelStart.plusHours(1))
+        funnelEvent(experiment, "u", "purchase", funnelStart.plusHours(2))
+        for (variant in listOf("A", "B")) impressions.save(ImpressionLogEntity(experimentKey = experiment.key,
+            userId = "no-event", variant = variant, timestamp = funnelStart))
+        conversions.save(ConversionLogEntity(experimentKey = experiment.key, variant = "A", userId = "orphan",
+            eventName = "cart", timestamp = funnelStart))
+        val wrong = impressions.save(ImpressionLogEntity(experimentKey = "other", variant = "A", userId = "u", timestamp = funnelStart))
+        conversions.save(ConversionLogEntity(experimentKey = experiment.key, variant = "A", userId = "u",
+            eventName = "cart", timestamp = funnelStart, impressionId = wrong.id))
+        val rows = analytics.getEventStats(experiment.key, "cart").associateBy { it.variant }
+        assertEquals(2L, rows.getValue("A").exposedUsers)
+        assertEquals(1L, rows.getValue("A").users)
+        assertEquals(2L, rows.getValue("A").events)
+        assertEquals(50.0, rows.getValue("A").cvr)
+        assertEquals(funnelStart.plusHours(1), rows.getValue("A").lastOccurredAt)
+        assertEquals(0.0, rows.getValue("B").cvr)
+        assertNull(rows.getValue("C").cvr)
+        assertTrue(rows.values.all { it.kind == "SECONDARY" })
+        assertTrue(analytics.getEventStats(experiment.key).filter { it.eventName == "failure" }.all { it.events == 0L && it.kind == "GUARDRAIL" })
+        assertTrue(analytics.getEventStats(experiment.key, "not-sent").all { it.events == 0L })
+        assertEquals(analytics.getExperimentStats(experiment.key).stats.single { it.variant == "A" }.cvr,
+            analytics.getEventStats(experiment.key, "purchase").single { it.variant == "A" }.cvr)
+        assertTrue(get("/admin/experiments/${experiment.id}/events?eventName=cart").contains("50.00%"))
+        assertEquals("purchase", experiments.findByKey(experiment.key)!!.goalEventName)
+    }
+
+    @Test
+    fun `event selections preserve exact names through create edit filter and SDK guide`() {
+        val goal = " Purchase "
+        val guardrail = "failure "
+        val fields = mapOf("key" to "exact-names", "description" to "", "goalEventName" to goal,
+            "guardrailEvents" to guardrail, "variants[0].name" to "A", "variants[0].weight" to "100")
+        assertEquals(302, post("/admin/experiments", fields).statusCode())
+        val experiment = service.getExperimentById(experiments.findByKey("exact-names")!!.id!!)
+        assertEquals(goal, experiment.goalEventName)
+        TransactionTemplate(transactions).executeWithoutResult {
+            assertEquals(setOf(guardrail), service.getExperimentById(experiment.id!!).guardrailEventNames)
+        }
+        assertEquals(302, post("/admin/experiments/${experiment.id}", fields + ("description" to "updated")).statusCode())
+        funnelEvent(experiment, "u", goal, funnelStart)
+        funnelEvent(experiment, "u", "Purchase", funnelStart)
+        assertEquals(1L, analytics.getEventStats(experiment.key, goal).single().events)
+        assertEquals("PRIMARY", analytics.getEventStats(experiment.key, goal).single().kind)
+        assertEquals("SECONDARY", analytics.getEventStats(experiment.key, "Purchase").single().kind)
+        val active = fields + ("status" to "ACTIVE")
+        assertEquals(302, post("/admin/experiments/${experiment.id}", active).statusCode())
+        assertEquals(400, post("/admin/experiments/${experiment.id}", active + ("goalEventName" to goal.trim())).statusCode())
+        assertEquals(400, post("/admin/experiments/${experiment.id}", active + ("guardrailEvents" to guardrail.trim())).statusCode())
+        val guide = get("/admin/experiments/${experiment.id}/integration")
+        assertTrue(guide.contains("&quot; Purchase &quot;"))
+        assertTrue(guide.contains("prism-spring-boot-starter:0.0.1-SNAPSHOT"))
+        assertTrue(guide.contains("\${PRISM_CLIENT_API_KEY}"))
+        assertTrue(guide.contains("trackIfAssigned"))
+        val dangerous = "</code><script>alert(\"x\")</script>\$value\\"
+        val selected = get("/admin/experiments/${experiment.id}/integration?eventName=" + URLEncoder.encode(dangerous, StandardCharsets.UTF_8))
+        assertFalse(selected.contains("<script>alert"))
+        assertTrue(selected.contains("&lt;script&gt;"))
+        assertEquals(goal, experiments.findByKey(experiment.key)!!.goalEventName)
+    }
+
+    @Test
+    fun `catalog and guide reject invalid queries and handle an experiment without a goal`() {
+        val legacy = experiments.save(ExperimentEntity(key = "no-goal", description = ""))
+        val page = get("/admin/experiments/${legacy.id}/integration")
+        assertTrue(page.contains("SDK 적용 가이드"))
+        assertFalse(page.contains("id=\"javaCode\""))
+        for (path in listOf("/admin/events?q=" + "x".repeat(256), "/admin/events/suggestions?q=" + "x".repeat(256),
+            "/admin/experiments/${legacy.id}/integration?eventName=%20", "/admin/experiments/${legacy.id}/events?eventName=%20",
+            "/admin/experiments/${legacy.id}/integration?eventName=" + "x".repeat(256))) {
+            val response = http.send(HttpRequest.newBuilder(uri(path)).GET().build(), HttpResponse.BodyHandlers.ofString())
+            assertEquals(400, response.statusCode(), response.body())
+            assertFalse(response.body().contains("Exception"))
+        }
+        assertEquals(404, http.send(HttpRequest.newBuilder(uri("/admin/experiments/9223372036854775807/integration")).GET().build(),
+            HttpResponse.BodyHandlers.ofString()).statusCode())
     }
 
     @Test
@@ -511,6 +763,40 @@ class AdminMetricsIntegrationTest {
         assertEquals(400, invalidStatus.statusCode(), invalidStatus.body())
         assertTrue(invalidStatus.body().contains("value=\"UNKNOWN\""))
         assertEquals(1, changes.findTop50ByExperimentIdOrderByIdDesc(id).size)
+    }
+
+    @Test
+    fun `experiment editing preserves precise schedule values and rejected date input`() {
+        val startsAt = "2030-01-01T00:00:00.123456"
+        val endsAt = "2030-01-02T00:00:00.654321"
+        val fields = mapOf("key" to "precise-schedule", "goalEventName" to "purchase",
+            "variants[0].name" to "A", "variants[0].weight" to "100", "startsAt" to startsAt, "endsAt" to endsAt)
+        assertEquals(302, post("/admin/experiments", fields).statusCode())
+        val id = experiments.findByKey("precise-schedule")!!.id!!
+        fun dateInput(html: String, name: String) = Regex("<input[^>]+name=\"$name\"[^>]*>").find(html)!!.value
+        for (status in listOf("DRAFT", "SCHEDULED")) {
+            assertEquals(302, post("/admin/experiments/$id", fields + mapOf("status" to status, "description" to "changed")).statusCode())
+            val page = get("/admin/experiments/$id/edit")
+            for ((name, value) in listOf("startsAt" to startsAt, "endsAt" to endsAt)) {
+                val input = dateInput(page, name)
+                assertTrue(input.contains("type=\"text\""), input)
+                assertTrue(input.contains("value=\"$value\""), input)
+                if (status == "SCHEDULED") assertTrue(input.contains("readonly"), input)
+            }
+            val saved = service.getExperimentById(id)
+            assertTrue(java.time.LocalDateTime.parse(startsAt).isEqual(saved.startsAt))
+            assertTrue(java.time.LocalDateTime.parse(endsAt).isEqual(saved.endsAt))
+        }
+        val rejected = post("/admin/experiments/$id", fields + ("startsAt" to "not-a-date"))
+        assertEquals(400, rejected.statusCode())
+        val input = dateInput(rejected.body(), "startsAt")
+        assertTrue(input.contains("type=\"text\"") && input.contains("value=\"not-a-date\""), input)
+        for (raw in listOf("2030-01-01T00:00:00.123000", "2030-01-01T00:00:00.000000", "0000-01-01T00:00")) {
+            val invalidForm = post("/admin/experiments", fields + mapOf("startsAt" to raw, "variants[0].weight" to "99"))
+            assertEquals(400, invalidForm.statusCode())
+            val date = dateInput(invalidForm.body(), "startsAt")
+            assertTrue(date.contains("type=\"text\"") && date.contains("value=\"$raw\""), date)
+        }
     }
 
     @Test

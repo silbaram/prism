@@ -123,7 +123,7 @@ class AdminExperimentController(
             targetingRules = form.targetingRules.map { TargetingRuleDto(it.expression) },
             trafficAllocation = form.trafficAllocation,
             startsAt = parseTime(form.startsAt), endsAt = parseTime(form.endsAt),
-            guardrailEventNames = form.guardrailEvents.lines().map(String::trim).filter(String::isNotBlank).toSet(),
+            guardrailEventNames = form.guardrailEvents.lines().filter(String::isNotBlank).toSet(),
             layerKey = form.layerKey.takeIf { it.isNotBlank() }, layerStart = form.layerStart, layerEnd = form.layerEnd,
             stickyBucketing = form.stickyBucketing
         )
@@ -153,7 +153,7 @@ class AdminExperimentController(
             targetingRules = form.targetingRules.map { TargetingRuleDto(it.expression) },
             trafficAllocation = form.trafficAllocation,
             startsAt = parseTime(form.startsAt), endsAt = parseTime(form.endsAt),
-            guardrailEventNames = form.guardrailEvents.lines().map(String::trim).filter(String::isNotBlank).toSet(),
+            guardrailEventNames = form.guardrailEvents.lines().filter(String::isNotBlank).toSet(),
             layerKey = form.layerKey.takeIf { it.isNotBlank() }, layerStart = form.layerStart, layerEnd = form.layerEnd,
             stickyBucketing = form.stickyBucketing
         )
@@ -169,10 +169,11 @@ class AdminExperimentController(
     }
 
     @GetMapping("/{id}/events")
-    fun events(@PathVariable id: Long, model: Model): String {
+    fun events(@PathVariable id: Long, @RequestParam(required = false) eventName: String?, model: Model): String {
         val experiment = experimentService.getExperimentById(id)
         model.addAttribute("experiment", experiment)
-        model.addAttribute("events", analyticsService.getEventStats(experiment.key))
+        model.addAttribute("selectedEvent", eventName.orEmpty())
+        model.addAttribute("events", analyticsService.getEventStats(experiment.key, eventName?.takeUnless { it.isEmpty() }))
         return "experiment/events"
     }
 

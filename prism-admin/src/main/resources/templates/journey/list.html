@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div class="container">
+    <div class="d-flex justify-content-between mb-3">
+        <h3 th:text="${experiment.key + ' · 사용자 여정'}"></h3>
+        <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}(id=${experiment.id})}">실험 상세</a>
+    </div>
+    <p>조회 기간 안에 노출 또는 이벤트가 기록된 사용자를 변형별로 표시합니다. 이름의 대소문자와 앞뒤 공백을 구분합니다.</p>
+    <form method="get" th:action="@{/admin/experiments/{id}/journeys(id=${experiment.id})}" class="card p-3 mb-3">
+        <div class="row g-3">
+            <div class="col-md-6"><label for="from" class="form-label">조회 시작 (UTC, 포함)</label><input id="from" name="from" th:type="${query.from.nano % 1000000 == 0 ? 'datetime-local' : 'text'}" step="0.001" maxlength="32" placeholder="2026-01-01T00:00:00.123456" required class="form-control" th:value="${query.from}"></div>
+            <div class="col-md-6"><label for="until" class="form-label">조회 종료 (UTC, 제외)</label><input id="until" name="until" th:type="${query.until.nano % 1000000 == 0 ? 'datetime-local' : 'text'}" step="0.001" maxlength="32" placeholder="2026-01-01T00:00:00.123456" required class="form-control" th:value="${query.until}"></div>
+            <div class="col-md-4"><label for="userId" class="form-label">사용자 ID (정확히 일치)</label><input id="userId" name="userId" maxlength="255" class="form-control" th:value="${query.userId}" placeholder="전체 사용자"></div>
+            <div class="col-md-2"><label for="variant" class="form-label">변형 (정확히 일치)</label><input id="variant" name="variant" maxlength="255" class="form-control" th:value="${query.variant}" placeholder="전체 변형"></div>
+            <div class="col-md-4"><label for="goalState" class="form-label">기간 내 목표 이벤트</label>
+                <select id="goalState" name="goalState" class="form-select" th:disabled="${!hasGoal}">
+                    <option value="ALL" th:selected="${query.goalState == 'ALL'}">전체</option>
+                    <option value="REACHED" th:selected="${query.goalState == 'REACHED'}">발생 확인</option>
+                    <option value="NOT_REACHED" th:selected="${query.goalState == 'NOT_REACHED'}">발생 확인 안 됨</option>
+                </select><div th:if="${!hasGoal}" class="form-text">목표 미설정 · 목표 이벤트 발생 여부로 검색할 수 없습니다.</div></div>
+            <div class="col-md-2"><label for="size" class="form-label">페이지 크기</label><input id="size" name="size" type="number" min="1" max="100" required class="form-control" th:value="${query.size}"></div>
+        </div>
+        <div class="form-text">마이크로초가 포함된 시각은 정밀도를 유지하도록 UTC 날짜·시간 문자열로 표시합니다.</div>
+        <button class="btn btn-primary mt-3">사용자 조회</button>
+    </form>
+    <p class="text-muted">목표 발생 여부에는 유효하게 노출에 귀속된 이벤트만 사용합니다. 이벤트 수에는 집계 제외 로그도 포함합니다.
+        첫/마지막 시각은 이 조회 기간 내 관측값이며 전체 사용자 생애의 시작·끝이 아닙니다. 늦게 수집된 데이터로 재조회 결과가 달라질 수 있습니다.</p>
+    <div class="table-responsive"><table class="table table-striped" id="journeyUsers">
+        <thead><tr><th>사용자 ID</th><th>변형</th><th>첫 관측 (UTC)</th><th>마지막 관측 (UTC)</th><th>노출</th><th>이벤트</th><th>집계 제외 이벤트</th><th>기간 내 목표</th></tr></thead>
+        <tbody>
+        <tr th:each="user : ${users.items}">
+            <td><a style="white-space: pre-wrap" th:text="${user.userId}" th:href="@{/admin/experiments/{id}/journeys/user(id=${experiment.id},userId=${user.userId},variant=${user.variant},from=${query.from},until=${query.until},size=${query.size},listSource=${navigation.listSource},listFilterUser=${navigation.listFilterUser},listFilterVariant=${navigation.listFilterVariant},listGoalState=${navigation.listGoalState},listSize=${navigation.listSize},listAfterUser=${navigation.listAfterUser},listAfterVariant=${navigation.listAfterVariant})}"></a></td>
+            <td style="white-space: pre-wrap" th:text="${user.variant}"></td>
+            <td th:text="${user.firstAt}"></td><td th:text="${user.lastAt}"></td>
+            <td th:text="${user.exposures}"></td><td th:text="${user.events}"></td><td th:text="${user.excluded}"></td>
+            <td th:text="${!hasGoal ? '목표 미설정' : (user.goals > 0 ? '발생 확인' : '발생 확인 안 됨')}"></td>
+        </tr>
+        <tr th:if="${users.items.empty}"><td colspan="8">조건에 맞는 사용자가 없습니다.</td></tr>
+        </tbody>
+    </table></div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/journeys(id=${experiment.id},from=${query.from},until=${query.until},userId=${query.userId},variant=${query.variant},goalState=${query.goalState},size=${query.size})}">처음부터 조회</a>
+        <a th:if="${users.next != null}" class="btn btn-primary" th:href="@{/admin/experiments/{id}/journeys(id=${experiment.id},from=${query.from},until=${query.until},userId=${query.userId},variant=${query.variant},goalState=${query.goalState},size=${query.size},afterUser=${users.next.userId},afterVariant=${users.next.variant})}">다음 사용자</a>
+    </div>
+</div>
+</th:block>
+</html>

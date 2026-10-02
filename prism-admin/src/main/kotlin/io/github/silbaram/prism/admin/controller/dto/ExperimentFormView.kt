@@ -12,6 +12,9 @@ data class ExperimentFormView(
     val variants: List<VariantInput>, val targetingRules: List<RuleInput>,
     val layerKey: String, val layerStart: String, val layerEnd: String, val stickyBucketing: Boolean
 ) {
+    val startsAtInputType: String get() = utcDateTimeInputType(startsAt)
+    val endsAtInputType: String get() = utcDateTimeInputType(endsAt)
+
     data class VariantInput(val name: String, val weight: String)
     data class RuleInput(val expression: String)
 

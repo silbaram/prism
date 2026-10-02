@@ -8,6 +8,8 @@ import org.springframework.transaction.annotation.Transactional
 import kotlin.math.sqrt
 import io.github.silbaram.prism.infrastructure.persistence.jpa.entities.ExperimentStatus
 import org.springframework.transaction.annotation.Isolation
+import java.time.LocalDateTime
+import io.github.silbaram.prism.admin.exception.requireValidInput
 
 @Service
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -41,16 +43,28 @@ class AnalyticsService(
                 experiment.status == ExperimentStatus.ENDED))
     }
 
-    fun getEventStats(experimentKey: String): List<EventStats> {
+    fun getEventStats(experimentKey: String, eventName: String? = null): List<EventStats> {
+        requireValidInput(eventName == null || (eventName.isNotBlank() && eventName.length <= 255)) { "이벤트 이름은 1–255자여야 합니다." }
         val experiment = requireNotNull(experimentRepository.findByKey(experimentKey))
-        return conversionRepository.countEventsByVariant(experimentKey).map {
-            val name = it[0] as String
+        val exposed = impressionRepository.countImpressionsByVariant(experimentKey).associate { (it[0] as String) to (it[1] as Long) }
+        val observed = conversionRepository.eventMetrics(experimentKey, eventName)
+        val indexed = observed.associateBy { it.eventName to it.variant }
+        val names = if (eventName != null) listOf(eventName) else
+            (listOfNotNull(experiment.goalEventName?.takeIf(String::isNotBlank)) + experiment.guardrailEventNames + observed.map { it.eventName }).distinct().sorted()
+        val variants = (experiment.variants.map { it.name } + exposed.keys + observed.map { it.variant }).distinct()
+        return names.flatMap { name ->
             val kind = when (name) {
                 experiment.goalEventName -> "PRIMARY"
                 in experiment.guardrailEventNames -> "GUARDRAIL"
                 else -> "SECONDARY"
             }
-            EventStats(name, it[1] as String, it[2] as Long, it[3] as Long, kind)
+            variants.map { variant ->
+                val metric = indexed[name to variant]
+                val denominator = exposed[variant] ?: 0
+                val users = metric?.users ?: 0
+                EventStats(name, variant, users, metric?.events ?: 0, kind, denominator,
+                    if (denominator > 0) users.toDouble() / denominator * 100 else null, metric?.lastOccurredAt)
+            }
         }
     }
 }
@@ -77,4 +91,5 @@ data class ExperimentStats(val experimentKey: String, val goalEventName: String?
 data class VariantStats(val variant: String, val impressions: Long, val conversions: Long?,
     val cvr: Double?, val confidenceInterval: ConfidenceInterval?)
 data class ConfidenceInterval(val lower: Double, val upper: Double)
-data class EventStats(val eventName: String, val variant: String, val users: Long, val events: Long, val kind: String = "SECONDARY")
+data class EventStats(val eventName: String, val variant: String, val users: Long, val events: Long, val kind: String,
+                      val exposedUsers: Long, val cvr: Double?, val lastOccurredAt: LocalDateTime?)

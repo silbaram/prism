@@ -5,6 +5,8 @@ plugins {
     id("org.springframework.boot")
 }
 
+springBoot { buildInfo() }
+
 tasks.getByName<BootJar>("bootJar") {
     enabled = true
     archiveFileName.set("prism-admin.jar")
@@ -23,6 +25,14 @@ dependencies {
 
     testImplementation(project(":prism-api"))
     testImplementation(project(":prism-common"))
+    testImplementation(project(":prism-sdk"))
+    testImplementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.2.0")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("com.h2database:h2")
+}
+
+tasks.test {
+    doFirst {
+        systemProperty("prism.guide.test.classpath", sourceSets["test"].runtimeClasspath.asPath)
+    }
 }

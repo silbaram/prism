@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div class="container">
+    <h3 th:text="${experiment.key + ' · 사용자 타임라인'}"></h3>
+    <p>사용자 <strong style="white-space: pre-wrap" th:text="${query.userId}"></strong> · 변형 <strong style="white-space: pre-wrap" th:text="${query.variant}"></strong></p>
+    <p><span th:text="${query.from}"></span> ≤ 발생 시각 (UTC) &lt; <span th:text="${query.until}"></span></p>
+    <div th:if="${timeline.summary != null}" class="card p-3 mb-3">
+        <span th:text="${'기간 내 노출 ' + timeline.summary.exposures + '회 · 이벤트 ' + timeline.summary.events + '회 · 집계 제외 ' + timeline.summary.excluded + '회'}"></span>
+        <span th:text="${!hasGoal ? '목표 미설정' : ('목표 ' + experiment.goalEventName + ': ' + (timeline.summary.goals > 0 ? '발생 확인' : '발생 확인 안 됨'))}"></span>
+    </div>
+    <div th:if="${steps != null}" class="card p-3 mb-3" id="funnelStatus">
+        <strong>선택한 퍼널 기준</strong>
+        <span style="white-space: pre-wrap" th:text="${#strings.listJoin(funnelQuery.steps, ' → ')}"></span>
+        <p th:if="${funnelUser == null}" class="mb-0">조회 기간 내 유효한 첫 단계가 없습니다.</p>
+        <th:block th:if="${funnelUser != null}">
+            <span th:text="${funnelUser.pending ? '관측 중 · 전환율 집계에서 제외' : (funnelUser.reached == funnelQuery.steps.size ? '모든 단계 도달' : '조회 조건 내 다음 단계 미도달')}"></span>
+            <span th:text="${'도달 단계: ' + funnelUser.reached + '/' + funnelQuery.steps.size + ' · 첫 단계: ' + funnelUser.firstAt + ' · 마지막 도달: ' + funnelUser.lastReachedAt}"></span>
+        </th:block>
+        <p class="mb-0">목표 이벤트 발생 여부와 순서·제한 시간을 적용한 퍼널 판정은 다를 수 있습니다.</p>
+    </div>
+    <p>수집된 노출과 행동을 발생 시각순으로 표시합니다. 반복 행동을 보존하며 같은 시각의 표시는 실제 선후 관계를 뜻하지 않습니다.
+        페이지 첫 행의 경과 시간은 이전 페이지 마지막 행을 기준으로 이어집니다.</p>
+    <p class="text-muted">과거 로그는 선행 노출 시각으로 귀속을 확인하므로 정확한 노출 연결은 알 수 없습니다. 연결된 노출이 조회 기간 밖에 있으면 타임라인에는 나오지 않을 수 있습니다.
+        집계 제외 로그도 진단용으로 표시합니다. SDK가 기록하지 않은 행동과 세션은 표시할 수 없습니다.</p>
+    <div class="table-responsive"><table class="table table-striped" id="journeyTimeline">
+        <thead><tr><th>발생 시각 (UTC)</th><th>행동</th><th>이전 행 이후</th><th>연결·집계 상태</th></tr></thead>
+        <tbody>
+        <tr th:each="entry : ${timeline.entries}">
+            <td th:text="${entry.log.timestamp}"></td>
+            <td><span style="white-space: pre-wrap" th:text="${entry.log.kind == 0 ? '실험 노출' : entry.log.eventName}"></span>
+                <span th:if="${hasGoal and entry.log.kind == 1 and entry.log.eventName == experiment.goalEventName}" class="badge bg-primary">목표</span></td>
+            <td><span th:text="${entry.elapsed ?: '—'}"></span><span th:if="${entry.simultaneous}" class="badge bg-secondary ms-1">동일 시각</span></td>
+            <td>
+                <span th:if="${entry.log.kind == 0}" th:text="${'노출 #' + entry.log.id}"></span>
+                <th:block th:if="${entry.log.kind == 1}">
+                    <span th:if="${entry.log.attribution == 0}" class="badge bg-warning text-dark">노출 귀속 확인 불가 · 집계 제외</span>
+                    <span th:if="${entry.log.attribution == 1}" th:text="${'노출 #' + entry.log.impressionId + ' 연결'}"></span>
+                    <span th:if="${entry.log.attribution == 2}">과거 로그 · 선행 노출 시각 기준 귀속</span>
+                    <span th:if="${entry.log.clockSkew}" class="badge bg-warning text-dark">연결된 노출보다 이른 시각 · 시계 확인</span>
+                </th:block>
+            </td>
+        </tr>
+        <tr th:if="${timeline.entries.empty}"><td colspan="4">조회할 행동이 없습니다.</td></tr>
+        </tbody>
+    </table></div>
+    <div class="d-flex gap-2 mb-3">
+        <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/journeys/user(id=${experiment.id},userId=${query.userId},variant=${query.variant},from=${query.from},until=${query.until},size=${query.size},steps=${steps},windowHours=${windowHours},stage=${stage},selection=${selection},listSource=${navigation.listSource},listFilterUser=${navigation.listFilterUser},listFilterVariant=${navigation.listFilterVariant},listGoalState=${navigation.listGoalState},listSize=${navigation.listSize},listAfterUser=${navigation.listAfterUser},listAfterVariant=${navigation.listAfterVariant})}">타임라인 처음부터</a>
+        <a th:if="${timeline.next != null}" class="btn btn-primary" th:href="@{/admin/experiments/{id}/journeys/user(id=${experiment.id},userId=${query.userId},variant=${query.variant},from=${query.from},until=${query.until},size=${query.size},afterAt=${timeline.next.at},afterKind=${timeline.next.kind},afterId=${timeline.next.id},steps=${steps},windowHours=${windowHours},stage=${stage},selection=${selection},listSource=${navigation.listSource},listFilterUser=${navigation.listFilterUser},listFilterVariant=${navigation.listFilterVariant},listGoalState=${navigation.listGoalState},listSize=${navigation.listSize},listAfterUser=${navigation.listAfterUser},listAfterVariant=${navigation.listAfterVariant})}">다음 행동</a>
+        <a th:if="${steps != null}" class="btn btn-outline-secondary" th:href="${funnelListReturnTo} ?: @{/admin/experiments/{id}/funnel/users(id=${experiment.id},steps=${steps},from=${query.from},until=${query.until},windowHours=${windowHours},variant=${query.variant},stage=${stage},selection=${selection},size=${query.size})}">퍼널 사용자 목록</a>
+        <a class="btn btn-outline-secondary" th:href="${journeyListReturnTo} ?: @{/admin/experiments/{id}/journeys(id=${experiment.id},from=${query.from},until=${query.until},variant=${query.variant},size=${query.size})}">사용자 여정 목록</a>
+    </div>
+</div>
+</th:block>
+</html>

@@ -125,7 +125,9 @@
                                 결과를 보며 조기 종료하면 오류율이 보장되지 않습니다. 반복 관측·다중 비교 보정과 개별 승자 판정은 제공하지 않습니다.</p>
                         </div>
                         <a th:href="@{/admin/experiments/{id}/events(id=${experiment.id})}" class="btn btn-outline-secondary">이벤트별 집계 보기</a>
+                        <a th:href="@{/admin/experiments/{id}/integration(id=${experiment.id})}" class="btn btn-outline-secondary">SDK 적용 가이드</a>
                         <a th:href="@{/admin/experiments/{id}/funnel(id=${experiment.id})}" class="btn btn-outline-secondary">순서형 퍼널 보기</a>
+                        <a th:href="@{/admin/experiments/{id}/journeys(id=${experiment.id})}" class="btn btn-outline-secondary">사용자 여정 보기</a>
                     </div>
                 </div>
             </div>

@@ -69,6 +69,8 @@ class MySqlMetricIntegrityTest {
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/032_experiment_scale.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/033_advanced_analysis.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/034_analysis_finalization_retry.sql"))
+                        ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/035_event_catalog.sql"))
+                        ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/036_user_journeys.sql"))
                         assertEquals(1L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft'"))
                         assertEquals(0L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft '"))
                         assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM experiments WHERE experiment_key IN ('paused', 'ended') AND configuration_locked = TRUE"))
@@ -78,6 +80,9 @@ class MySqlMetricIntegrityTest {
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("schema.sql"))
                     }
                     assertExactCollations(connection)
+                    assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM information_schema.STATISTICS " +
+                        "WHERE TABLE_SCHEMA = DATABASE() AND INDEX_NAME IN ('idx_impression_journey', 'idx_conversion_journey') " +
+                        "AND COLUMN_NAME = 'variant' AND SUB_PART = 191"))
                     assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM information_schema.COLUMNS " +
                         "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('log_impression', 'log_conversion') " +
                         "AND COLUMN_NAME = 'timestamp' AND DATETIME_PRECISION = 6"))
@@ -94,6 +99,12 @@ class MySqlMetricIntegrityTest {
                     val impressions = context.getBean(ImpressionLogRepository::class.java)
                     val conversions = context.getBean(ConversionLogRepository::class.java)
                     val changes = context.getBean(ExperimentChangeRepository::class.java)
+                    val definitions = context.getBean(EventDefinitionRepository::class.java)
+                    val exactEvents = listOf("catalog-event", "Catalog-event", "catalog-event ", "catalog_%!")
+                    definitions.saveAllAndFlush(exactEvents.map { EventDefinitionEntity(name = it, description = "catalog") })
+                    assertEquals(exactEvents.toSet(), definitions.findAll().map { it.name }.toSet())
+                    assertEquals(listOf("catalog-event "), definitions.findByNameIn(listOf("catalog-event ")).map { it.name })
+                    assertEquals(listOf("catalog_%!"), definitions.findNames("%catalog!_!%!!%", org.springframework.data.domain.PageRequest.of(0, 100)))
                     val auditTime = Instant.parse("2026-09-13T02:03:04.123456Z")
                     val scheduleStart = LocalDateTime.ofInstant(auditTime, java.time.ZoneOffset.UTC)
                     val scheduled = experiments.save(ExperimentEntity(key = "native-schedule", description = "", goalEventName = "purchase",
@@ -196,11 +207,42 @@ class MySqlMetricIntegrityTest {
                     verifyEventIngestion(context.getBean(EventIngestionService::class.java), impressions, conversions)
                     verifyOccurrenceOrder(context.getBean(EventIngestionService::class.java), lookup, impressions,
                         context.getBean(javax.sql.DataSource::class.java))
+                    verifyJourneys(context)
                 }
             } finally {
                 admin.createStatement().use { it.execute("DROP DATABASE $database") }
             }
         }
+    }
+
+    private fun verifyJourneys(context: org.springframework.context.ConfigurableApplicationContext) {
+        val impressions = context.getBean(ImpressionLogRepository::class.java)
+        val conversions = context.getBean(ConversionLogRepository::class.java)
+        val journeys = context.getBean(UserJourneyRepository::class.java)
+        val at = LocalDateTime.of(2026, 1, 1, 0, 0, 0, 123456000)
+        val names = listOf("Case", "case", "Case ", "한글", "\uE000", "\uD83D\uDE00")
+        // Long variants sharing the indexed prefix must still be separate identities.
+        val variants = listOf("A", "A ", "x".repeat(191) + "a", "x".repeat(191) + "b")
+        for (name in names) for (variant in variants) {
+            val shown = impressions.saveAndFlush(ImpressionLogEntity(experimentKey = "native-journey", userId = name, variant = variant, timestamp = at))
+            conversions.saveAndFlush(ConversionLogEntity(experimentKey = "native-journey", userId = name, variant = variant,
+                eventName = "purchase", timestamp = at, impressionId = shown.id))
+        }
+        val rows = journeys.users("native-journey", at, at.plusDays(1), "purchase", null, null, "ALL", null, null, 100)
+        assertEquals(names.size * variants.size, rows.size)
+        rows.forEach { assertEquals(at, it.firstAt); assertEquals(1L, it.goals); assertEquals(0L, it.excluded) }
+        val paged = mutableListOf<Pair<String, String>>()
+        var cursor: JourneyUserRow? = null
+        do {
+            val next = journeys.users("native-journey", at, at.plusDays(1), "purchase", null, null, "ALL", cursor?.userId, cursor?.variant, 1)
+            cursor = next.firstOrNull()
+            next.forEach { paged += it.userId to it.variant }
+        } while (cursor != null)
+        assertEquals(rows.map { it.userId to it.variant }, paged)
+        val first = journeys.logs("native-journey", "Case ", "A ", at, at.plusDays(1), null, null, null, 1).single()
+        assertEquals(0, first.kind); assertEquals(at, first.timestamp)
+        val second = journeys.logs("native-journey", "Case ", "A ", at, at.plusDays(1), first.timestamp, first.kind, first.id, 1).single()
+        assertEquals(1, second.kind); assertEquals(at, second.timestamp); assertEquals(1, second.attribution)
     }
 
     private fun verifyAdvancedAnalysis(context: org.springframework.context.ConfigurableApplicationContext) {
@@ -442,6 +484,7 @@ class MySqlMetricIntegrityTest {
             "log_conversion" to setOf("experiment_key", "variant", "user_id", "event_name", "event_id"),
             "event_receipts" to setOf("event_id", "payload_hash", "config_version"),
             "experiment_changes" to setOf("experiment_key"), "experiment_guardrails" to setOf("event_name"),
+            "event_definitions" to setOf("event_name"),
             "analysis_plans" to setOf("control_variant"), "analysis_observations" to setOf("id", "user_id", "variant"),
             "population_policy" to setOf("holdout_key"), "experiment_layers" to setOf("layer_key"),
             "sticky_assignments" to setOf("id", "experiment_key", "user_id", "variant"),
