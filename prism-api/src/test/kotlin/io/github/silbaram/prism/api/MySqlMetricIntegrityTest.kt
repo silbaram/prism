@@ -71,6 +71,7 @@ class MySqlMetricIntegrityTest {
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/034_analysis_finalization_retry.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/035_event_catalog.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/036_user_journeys.sql"))
+                        ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/037_saved_funnels.sql"))
                         assertEquals(1L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft'"))
                         assertEquals(0L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft '"))
                         assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM experiments WHERE experiment_key IN ('paused', 'ended') AND configuration_locked = TRUE"))
@@ -86,6 +87,15 @@ class MySqlMetricIntegrityTest {
                     assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM information_schema.COLUMNS " +
                         "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('log_impression', 'log_conversion') " +
                         "AND COLUMN_NAME = 'timestamp' AND DATETIME_PRECISION = 6"))
+                    assertEquals(4L, scalar(connection, "SELECT COUNT(*) FROM information_schema.COLUMNS " +
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'saved_funnels' " +
+                        "AND COLUMN_NAME IN ('from_at', 'until_at', 'created_at', 'updated_at') AND DATETIME_PRECISION = 6"))
+                    assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM information_schema.COLUMNS " +
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'saved_funnels' " +
+                        "AND COLUMN_NAME IN ('from_at', 'until_at') AND DATA_TYPE = 'datetime'"))
+                    assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM information_schema.COLUMNS " +
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'saved_funnels' " +
+                        "AND COLUMN_NAME IN ('created_at', 'updated_at') AND DATA_TYPE = 'timestamp'"))
                 }
 
                 SpringApplicationBuilder(PrismApiApplication::class.java).web(WebApplicationType.NONE).run(
@@ -208,11 +218,115 @@ class MySqlMetricIntegrityTest {
                     verifyOccurrenceOrder(context.getBean(EventIngestionService::class.java), lookup, impressions,
                         context.getBean(javax.sql.DataSource::class.java))
                     verifyJourneys(context)
+                    verifySavedFunnels(context)
                 }
             } finally {
                 admin.createStatement().use { it.execute("DROP DATABASE $database") }
             }
         }
+    }
+
+    private fun verifySavedFunnels(context: org.springframework.context.ConfigurableApplicationContext) {
+        val experiments = context.getBean(ExperimentRepository::class.java)
+        val funnels = context.getBean(SavedFunnelRepository::class.java)
+        val experiment = experiments.saveAndFlush(ExperimentEntity(key = "native-funnels", description = ""))
+        val other = experiments.saveAndFlush(ExperimentEntity(key = "native-funnels-other", description = ""))
+        val experimentId = experiment.id!!
+        val otherId = other.id!!
+        val at = LocalDateTime.of(2026, 9, 13, 2, 3, 4, 123456000)
+        val steps = listOf("장바구니", "quote\"\\\n", "purchase ")
+        val stepsJson = com.fasterxml.jackson.module.kotlin.jacksonObjectMapper().writeValueAsString(steps)
+        val names = listOf("Checkout", "checkout", "Checkout ", "체크아웃")
+        val saved = names.map { name ->
+            funnels.saveAndFlush(SavedFunnelEntity(experiment = experiment, name = name,
+                description = "설명".repeat(500), stepsJson = stepsJson, windowHours = 24, periodMode = "FIXED",
+                fromAt = at, untilAt = at.plusDays(1), createdAt = at, updatedAt = at.plusHours(1)))
+        }
+        val page = org.springframework.data.domain.PageRequest.of(0, 1)
+        val all = org.springframework.data.domain.PageRequest.of(0, 100)
+        assertEquals(names, funnels.findByExperimentIdOrderByIdAsc(experimentId, all).map { it.name })
+        val paged = mutableListOf<Long>()
+        var afterId = 0L
+        while (true) {
+            val row = funnels.findByExperimentIdAndIdGreaterThanOrderByIdAsc(experimentId, afterId, page).singleOrNull() ?: break
+            paged += row.id!!
+            afterId = row.id!!
+        }
+        assertEquals(saved.map { it.id }, paged)
+        saved.forEach { original ->
+            val stored = funnels.findByIdAndExperimentId(original.id!!, experimentId)!!
+            assertEquals(original.name, stored.name)
+            assertEquals(original.description, stored.description)
+            assertEquals(stepsJson, stored.stepsJson)
+            assertEquals(at, stored.fromAt)
+            assertEquals(at.plusDays(1), stored.untilAt)
+            assertEquals(at, stored.createdAt)
+            assertEquals(at.plusHours(1), stored.updatedAt)
+            assertEquals(0L, stored.version)
+            assertNull(funnels.findByIdAndExperimentId(original.id!!, otherId))
+            assertTrue(funnels.existsByExperimentIdAndName(experimentId, original.name))
+            assertFalse(funnels.existsByExperimentIdAndNameAndIdNot(experimentId, original.name, original.id!!))
+        }
+        assertFalse(funnels.existsByExperimentIdAndName(experimentId, "CHECKOUT"))
+        assertFalse(funnels.existsByExperimentIdAndName(experimentId, "Checkout  "))
+        assertTrue(funnels.existsByExperimentIdAndNameAndIdNot(experimentId, names[1], saved[0].id!!))
+        assertThrows(org.springframework.dao.DataIntegrityViolationException::class.java) {
+            funnels.saveAndFlush(SavedFunnelEntity(experiment = experiment, name = names[0], stepsJson = stepsJson,
+                windowHours = 24, periodMode = "LAST_7_DAYS"))
+        }
+        // The same exact name is reusable in another experiment, including a relative period with no fixed dates.
+        val relative = funnels.saveAndFlush(SavedFunnelEntity(experiment = other, name = names[0], stepsJson = stepsJson,
+            windowHours = 720, periodMode = "LAST_30_DAYS", createdAt = at))
+        assertNull(funnels.findById(relative.id!!).orElseThrow().fromAt)
+        assertNull(funnels.findById(relative.id!!).orElseThrow().untilAt)
+
+        // The existing analysis accepts midnight at the epoch, before MySQL TIMESTAMP's first representable second.
+        val epoch = LocalDateTime.of(1970, 1, 1, 0, 0)
+        val epochEnd = epoch.plusDays(1).plusNanos(999999000)
+        val epochFunnel = funnels.saveAndFlush(SavedFunnelEntity(experiment = experiment, name = "epoch boundary",
+            stepsJson = stepsJson, windowHours = 24, periodMode = "FIXED", fromAt = epoch, untilAt = epochEnd, createdAt = at))
+        val storedEpoch = funnels.findById(epochFunnel.id!!).orElseThrow()
+        assertEquals(epoch, storedEpoch.fromAt)
+        assertEquals(epochEnd, storedEpoch.untilAt)
+        context.getBean(javax.sql.DataSource::class.java).connection.use { connection ->
+            connection.prepareStatement("SELECT from_at, until_at FROM saved_funnels WHERE id = ?").use { query ->
+                query.setLong(1, epochFunnel.id!!)
+                query.executeQuery().use { rows ->
+                    assertTrue(rows.next())
+                    assertEquals(epoch, rows.getObject(1, LocalDateTime::class.java))
+                    assertEquals(epochEnd, rows.getObject(2, LocalDateTime::class.java))
+                }
+            }
+        }
+
+        val current = funnels.findById(saved[0].id!!).orElseThrow()
+        val stale = funnels.findById(saved[0].id!!).orElseThrow()
+        current.description = "updated"
+        current.updatedAt = at.plusHours(2)
+        val updated = funnels.saveAndFlush(current)
+        assertEquals(1L, updated.version)
+        assertEquals(at, updated.createdAt)
+        stale.description = "stale overwrite"
+        assertThrows(org.springframework.orm.ObjectOptimisticLockingFailureException::class.java) {
+            funnels.saveAndFlush(stale)
+        }
+        assertEquals("updated", funnels.findById(updated.id!!).orElseThrow().description)
+        context.getBean(javax.sql.DataSource::class.java).connection.use { connection ->
+            connection.prepareStatement("SELECT UNIX_TIMESTAMP(from_at) * 1000000, UNIX_TIMESTAMP(until_at) * 1000000, " +
+                "UNIX_TIMESTAMP(created_at) * 1000000, UNIX_TIMESTAMP(updated_at) * 1000000 FROM saved_funnels WHERE id = ?").use { query ->
+                query.setLong(1, updated.id!!)
+                query.executeQuery().use { rows ->
+                    assertTrue(rows.next())
+                    listOf(at, at.plusDays(1), at, at.plusHours(2)).forEachIndexed { index, value ->
+                        val instant = value.toInstant(ZoneOffset.UTC)
+                        assertEquals(instant.epochSecond * 1_000_000 + instant.nano / 1000, rows.getLong(index + 1))
+                    }
+                }
+            }
+        }
+        experiments.deleteById(experimentId)
+        assertTrue(funnels.findByExperimentIdOrderByIdAsc(experimentId, all).isEmpty())
+        assertNotNull(funnels.findByIdAndExperimentId(relative.id!!, otherId))
     }
 
     private fun verifyJourneys(context: org.springframework.context.ConfigurableApplicationContext) {
@@ -500,6 +614,7 @@ class MySqlMetricIntegrityTest {
             "event_receipts" to setOf("event_id", "payload_hash", "config_version"),
             "experiment_changes" to setOf("experiment_key"), "experiment_guardrails" to setOf("event_name"),
             "event_definitions" to setOf("event_name"),
+            "saved_funnels" to setOf("name"),
             "analysis_plans" to setOf("control_variant"), "analysis_observations" to setOf("id", "user_id", "variant"),
             "population_policy" to setOf("holdout_key"), "experiment_layers" to setOf("layer_key"),
             "sticky_assignments" to setOf("id", "experiment_key", "user_id", "variant"),

@@ -2,9 +2,18 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <th:block th:replace="~{layout/default :: layout(~{::div})}">
 <div class="container">
-    <div class="d-flex justify-content-between mb-3">
-        <h3 th:text="${experiment.key + ' · 순서형 퍼널'}">순서형 퍼널</h3>
-        <a th:href="@{/admin/experiments/{id}(id=${experiment.id})}" class="btn btn-outline-secondary">실험 상세</a>
+    <div class="d-flex flex-wrap justify-content-between gap-2 mb-3">
+        <h3 class="text-break" th:text="${experiment.key + ' · 순서형 퍼널'}">순서형 퍼널</h3>
+        <div class="d-flex flex-wrap gap-2">
+            <a th:href="@{/admin/experiments/{id}/funnels(id=${experiment.id})}" class="btn btn-outline-primary">저장된 퍼널</a>
+            <a th:href="@{/admin/experiments/{id}(id=${experiment.id})}" class="btn btn-outline-secondary">실험 상세</a>
+        </div>
+    </div>
+    <div th:if="${savedFunnel != null}" class="alert alert-info">
+        <strong style="white-space: pre-wrap; overflow-wrap: anywhere" th:text="${savedFunnel.name}"></strong>
+        <span th:text="${' · ' + savedFunnel.periodLabel}"></span>
+        <p class="small mb-1">아래에는 이번 조회에 적용한 실제 기간을 표시합니다. 사용자 목록에서도 이 기간을 유지합니다. 조회 조건을 바꾸어도 저장된 조건은 수정되지 않습니다.</p>
+        <a th:if="${canManageExperiments}" th:href="@{/admin/experiments/{id}/funnels/{funnelId}/edit(id=${experiment.id},funnelId=${savedFunnel.id})}">저장된 조건 수정</a>
     </div>
     <form method="get" th:action="@{/admin/experiments/{id}/funnel(id=${experiment.id})}" class="card p-3 mb-3">
         <div class="mb-3">
@@ -29,7 +38,11 @@
                     class="form-control" th:value="${windowHours}" required><span class="input-group-text">시간</span></div></div>
         </div>
         <div class="form-text mb-3">마이크로초가 포함된 시각은 정밀도를 유지하도록 UTC 날짜·시간 문자열로 표시합니다.</div>
-        <button type="submit" class="btn btn-primary">퍼널 조회</button>
+        <div class="d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-primary">퍼널 조회</button>
+            <button th:if="${canManageExperiments}" type="submit" class="btn btn-outline-primary"
+                    th:formaction="@{/admin/experiments/{id}/funnels/new(id=${experiment.id})}" name="periodMode" value="FIXED">현재 조건 저장</button>
+        </div>
     </form>
     <p>조회 기간 안의 최초 1단계 이벤트를 기준으로 사용자·변형별 한 번 집계합니다. 이후 단계는 앞 단계보다 늦고,
         첫 단계부터 제한 시간 미만이어야 합니다. 중간에 다른 이벤트가 있어도 괜찮지만 단계 건너뛰기는 인정하지 않습니다.

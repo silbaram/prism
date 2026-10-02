@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div class="container">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <h3 class="text-break" th:text="${experiment.key + ' · 저장된 퍼널'}">저장된 퍼널</h3>
+        <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}(id=${experiment.id})}">실험 상세</a>
+    </div>
+    <p>이벤트 순서와 전환 제한 시간을 저장해 같은 기준으로 다시 분석하세요. 최근 7일·30일은 조회할 때마다 기간을 계산하고, 고정 기간은 저장한 시작·종료 시각을 사용합니다.</p>
+    <div th:if="${formMessage != null}" class="alert alert-success" role="status" th:text="${formMessage}"></div>
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <a th:if="${canManageExperiments}" class="btn btn-primary" th:href="@{/admin/experiments/{id}/funnels/new(id=${experiment.id})}">새 퍼널 저장</a>
+        <a class="btn btn-outline-primary" th:href="@{/admin/experiments/{id}/funnel(id=${experiment.id})}">직접 조건 입력</a>
+    </div>
+    <div class="table-responsive">
+        <table class="table align-middle" id="savedFunnels">
+            <caption>실험에 저장된 분석 조건입니다. 분석 결과는 조회 시점의 수집 데이터에 따라 달라질 수 있습니다.</caption>
+            <thead><tr><th scope="col">이름·설명</th><th scope="col">이벤트 순서</th><th scope="col">조회 조건</th><th scope="col">수정 시각 (UTC)</th><th scope="col">작업</th></tr></thead>
+            <tbody>
+            <tr th:each="saved : ${savedFunnels}">
+                <td style="min-width: 10rem; max-width: 20rem; overflow-wrap: anywhere">
+                    <a class="fw-semibold" style="white-space: pre-wrap" th:text="${saved.name}" th:href="@{/admin/experiments/{id}/funnels/{funnelId}(id=${experiment.id},funnelId=${saved.id})}">구매 퍼널</a>
+                    <p class="text-muted small mb-0 mt-1" style="white-space: pre-wrap" th:text="${saved.description}"></p>
+                </td>
+                <td style="min-width: 12rem; max-width: 22rem; overflow-wrap: anywhere">
+                    <ol class="mb-0 ps-3"><li th:each="eventName : ${saved.steps}"><span style="white-space: pre-wrap" th:text="${eventName}">purchase</span></li></ol>
+                </td>
+                <td style="min-width: 12rem">
+                    <span th:text="${saved.periodLabel}">최근 30일</span>
+                    <p th:if="${saved.fromAt != null}" class="small mb-1">시작 (포함): <time th:text="${saved.fromAt}"></time><br>종료 (제외): <time th:text="${saved.untilAt}"></time></p>
+                    <p class="small mb-0" th:text="${'첫 단계부터 ' + saved.windowHours + '시간 미만'}">첫 단계부터 24시간 미만</p>
+                </td>
+                <td th:text="${saved.updatedAt}"></td>
+                <td style="min-width: 12rem">
+                    <div class="d-flex flex-wrap gap-2">
+                        <a class="btn btn-sm btn-primary" th:href="@{/admin/experiments/{id}/funnels/{funnelId}(id=${experiment.id},funnelId=${saved.id})}">조회</a>
+                        <a th:if="${canManageExperiments}" class="btn btn-sm btn-outline-secondary" th:href="@{/admin/experiments/{id}/funnels/{funnelId}/edit(id=${experiment.id},funnelId=${saved.id})}">수정</a>
+                        <a th:if="${canManageExperiments}" class="btn btn-sm btn-outline-secondary" th:href="@{/admin/experiments/{id}/funnels/{funnelId}/copy(id=${experiment.id},funnelId=${saved.id})}">복제</a>
+                        <form th:if="${canManageExperiments}" method="post" th:action="@{/admin/experiments/{id}/funnels/{funnelId}/delete(id=${experiment.id},funnelId=${saved.id})}"
+                              onsubmit="return confirm('이 퍼널의 저장된 분석 조건을 삭제하시겠습니까?');">
+                            <input type="hidden" name="version" th:value="${saved.version}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">삭제</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            <tr th:if="${savedFunnels.empty}"><td colspan="5" class="text-muted py-4" th:text="${listAfterId == null ? '저장된 퍼널이 없습니다.' : '이후에 저장된 퍼널이 없습니다.'}">저장된 퍼널이 없습니다.</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <a th:if="${listAfterId != null}" class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/funnels(id=${experiment.id})}">처음부터 조회</a>
+        <a th:if="${nextId != null}" class="btn btn-primary" th:href="@{/admin/experiments/{id}/funnels(id=${experiment.id},afterId=${nextId})}">다음 퍼널</a>
+    </div>
+</div>
+</th:block>
+</html>

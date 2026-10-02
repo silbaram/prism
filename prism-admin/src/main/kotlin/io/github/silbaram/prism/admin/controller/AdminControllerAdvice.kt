@@ -21,6 +21,12 @@ class AdminControllerAdvice {
     @ExceptionHandler(ExperimentNotFoundException::class)
     fun missing(error: ExperimentNotFoundException) = message(404, error.message.orEmpty())
 
+    @ExceptionHandler(io.github.silbaram.prism.admin.exception.SavedFunnelNotFoundException::class)
+    fun missingFunnel(error: io.github.silbaram.prism.admin.exception.SavedFunnelNotFoundException) = message(404, error.message.orEmpty())
+
+    @ExceptionHandler(io.github.silbaram.prism.admin.exception.SavedFunnelConflictException::class)
+    fun staleFunnel(error: io.github.silbaram.prism.admin.exception.SavedFunnelConflictException) = message(409, error.message.orEmpty())
+
     @ExceptionHandler(MethodArgumentNotValidException::class, MethodArgumentTypeMismatchException::class)
     fun invalid() = message(400, "입력 형식과 필수 항목을 확인하세요.")
 
@@ -31,7 +37,8 @@ class AdminControllerAdvice {
     fun invalidDomainValue(error: io.github.silbaram.prism.admin.exception.AdminValidationException) =
         message(400, error.message.orEmpty())
 
-    @ExceptionHandler(DataIntegrityViolationException::class, PessimisticLockingFailureException::class)
+    @ExceptionHandler(DataIntegrityViolationException::class, PessimisticLockingFailureException::class,
+        org.springframework.dao.OptimisticLockingFailureException::class)
     fun conflict() = message(409, "다른 변경과 충돌했습니다. 최신 실험을 다시 확인하세요.")
 
     private fun message(status: Int, body: String) = ModelAndView("error/status",
