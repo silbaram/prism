@@ -44,9 +44,9 @@
                     </th:block>
                     <small class="d-block text-muted" th:text="${row.path.truncated ? '… 이후 행동 있음' : '기간 내 마지막 행동'}"></small>
                 </td>
-                <td class="pattern-users" th:text="${row.users}"></td>
+                <td class="pattern-users"><a th:text="${row.users}" th:href="@{/admin/experiments/{id}/journeys/patterns/users(id=${experiment.id},from=${query.from},until=${query.until},variant=${group.variant},depth=${query.depth},top=${query.top},pathKey=${row.path.key},goalState='ALL',allVariants=${query.variant == null})}" aria-label="이 경로의 전체 사용자 조회"></a></td>
                 <td th:text="${#numbers.formatDecimal(row.sharePercent, 1, 2) + '%'}"></td>
-                <td th:text="${row.goalPercent == null ? '목표 미설정' : (row.goals + '명 / ' + #numbers.formatDecimal(row.goalPercent, 1, 2) + '%')}"></td>
+                <td><span th:if="${row.goalPercent == null}">목표 미설정</span><th:block th:if="${row.goalPercent != null}"><a class="pattern-goal-users" th:text="${row.goals + '명'}" th:href="@{/admin/experiments/{id}/journeys/patterns/users(id=${experiment.id},from=${query.from},until=${query.until},variant=${group.variant},depth=${query.depth},top=${query.top},pathKey=${row.path.key},goalState='REACHED',allVariants=${query.variant == null})}" aria-label="이 경로에서 목표가 발생한 사용자 조회"></a><span th:text="${' / ' + #numbers.formatDecimal(row.goalPercent, 1, 2) + '%'}"></span></th:block></td>
                 <td><a th:each="user : ${row.sampleUsers}" class="d-block pattern-user" style="white-space: pre-wrap; overflow-wrap: anywhere" th:text="${user}" th:href="@{/admin/experiments/{id}/journeys/user(id=${experiment.id},userId=${user},variant=${group.variant},from=${query.from},until=${query.until},listSource=${navigation.listSource},listFilterVariant=${navigation.listFilterVariant},patternDepth=${navigation.patternDepth},patternTop=${navigation.patternTop})}"></a></td>
             </tr>
             <tr th:if="${group.patterns.empty}"><td colspan="5">표시할 경로가 없습니다.</td></tr>

@@ -71,4 +71,36 @@ class JourneyNavigationTest {
         }
         assertThrows(AdminValidationException::class.java) { JourneyNavigation(patternDepth = 0).validated() }
     }
+
+    @Test fun `pattern user return preserves the exact list page while retaining the original aggregate variant scope`() {
+        val key = "ab".repeat(32)
+        val precise = query.copy(from = from.plusNanos(123000), until = from.plusDays(2).plusNanos(123000))
+        for (filtered in listOf(false, true)) {
+            val source = JourneyNavigation(listSource = JourneyListSource.PATTERN_USERS,
+                listFilterVariant = filtered, listGoalState = "NOT_REACHED", listSize = 25,
+                listAfterUser = "이전 & + / ", patternDepth = 8, patternTop = 3, patternKey = key).validated()
+            val location = source.location("/prism", 1, precise, null, 1, FunnelSelection.REACHED)!!
+            assertEquals("/prism/admin/experiments/1/journeys/patterns/users", URI(location).rawPath)
+            assertEquals(mapOf("from" to precise.from.toString(), "until" to precise.until.toString(),
+                "variant" to precise.variant, "depth" to "8", "top" to "3", "pathKey" to key,
+                "goalState" to "NOT_REACHED", "size" to "25", "afterUser" to "이전 & + / ",
+                "allVariants" to (!filtered).toString()), values(location))
+            assertFalse(values(location).containsKey("userId"))
+            assertFalse(values(location).containsKey("steps"))
+        }
+    }
+
+    @Test fun `pattern user navigation rejects missing or malformed structural keys and missing variant`() {
+        assertNull(JourneyNavigation(patternKey = "").validated().patternKey)
+        for (key in listOf(null, "", "a".repeat(63), "A".repeat(64), "https://example.com/", "<script>")) {
+            assertThrows(AdminValidationException::class.java) {
+                JourneyNavigation(listSource = JourneyListSource.PATTERN_USERS, patternKey = key).validated()
+            }
+        }
+        val source = JourneyNavigation(listSource = JourneyListSource.PATTERN_USERS, patternKey = "ab".repeat(32)).validated()
+        assertThrows(AdminValidationException::class.java) {
+            source.location("", 1, query.copy(variant = null), null, 1, FunnelSelection.REACHED)
+        }
+    }
+
 }

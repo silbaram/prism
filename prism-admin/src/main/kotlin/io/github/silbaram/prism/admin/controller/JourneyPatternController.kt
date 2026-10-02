@@ -5,6 +5,9 @@ import io.github.silbaram.prism.admin.controller.dto.JourneyNavigation
 import io.github.silbaram.prism.admin.service.ExperimentService
 import io.github.silbaram.prism.admin.service.JourneyPatternQuery
 import io.github.silbaram.prism.admin.service.JourneyPatternService
+import io.github.silbaram.prism.admin.service.JourneyQuery
+import io.github.silbaram.prism.admin.service.FunnelSelection
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.stereotype.Controller
 import org.springframework.ui.Model
 import org.springframework.web.bind.annotation.GetMapping
@@ -31,5 +34,34 @@ class JourneyPatternController(private val experiments: ExperimentService, priva
         model.addAttribute("navigation", JourneyNavigation(listSource = JourneyListSource.PATTERNS,
             listFilterVariant = query.variant != null, patternDepth = depth, patternTop = top))
         return "journey/patterns"
+    }
+
+    @GetMapping("/admin/experiments/{id}/journeys/patterns/users")
+    fun users(@PathVariable id: Long, @RequestParam from: String, @RequestParam until: String,
+        @RequestParam variant: String, @RequestParam pathKey: String,
+        @RequestParam(defaultValue = "5") depth: Int, @RequestParam(defaultValue = "20") top: Int,
+        @RequestParam(defaultValue = "ALL") goalState: String, @RequestParam(defaultValue = "50") size: Int,
+        @RequestParam(required = false) afterUser: String?, @RequestParam(defaultValue = "false") allVariants: Boolean,
+        request: HttpServletRequest, model: Model): String {
+        val query = JourneyPatternQuery(journeyTime(from), journeyTime(until), variant, depth, top)
+        val cursor = afterUser?.takeUnless(String::isEmpty)
+        val users = patterns.users(id, query, pathKey, goalState, cursor, size)
+        val navigation = JourneyNavigation(listSource = JourneyListSource.PATTERN_USERS,
+            listFilterVariant = !allVariants, listGoalState = goalState, listSize = size, listAfterUser = cursor,
+            patternDepth = depth, patternTop = top, patternKey = pathKey)
+        val aggregate = JourneyNavigation(listSource = JourneyListSource.PATTERNS, listFilterVariant = !allVariants,
+            patternDepth = depth, patternTop = top)
+        model.addAttribute("experiment", experiments.getExperimentById(id))
+        model.addAttribute("query", query)
+        model.addAttribute("users", users)
+        model.addAttribute("pathKey", pathKey)
+        model.addAttribute("goalState", goalState)
+        model.addAttribute("size", size)
+        model.addAttribute("afterUser", cursor)
+        model.addAttribute("allVariants", allVariants)
+        model.addAttribute("navigation", navigation)
+        model.addAttribute("patternListReturnTo", aggregate.location(request.contextPath, id,
+            JourneyQuery(query.from, query.until, variant = variant), null, 1, FunnelSelection.REACHED))
+        return "journey/pattern-users"
     }
 }
