@@ -57,4 +57,18 @@ class JourneyNavigationTest {
             JourneyNavigation(listSource = JourneyListSource.FUNNEL).location("", 1, query, null, 1, FunnelSelection.REACHED)
         }
     }
+
+    @Test fun `pattern return preserves depth and limit without accidentally restricting all variants`() {
+        for (filtered in listOf(false, true)) {
+            val source = JourneyNavigation(listSource = JourneyListSource.PATTERNS,
+                listFilterVariant = filtered, patternDepth = 8, patternTop = 2).validated()
+            val location = source.location("/prism", 1, query, null, 1, FunnelSelection.REACHED)!!
+            assertEquals("/prism/admin/experiments/1/journeys/patterns", URI(location).rawPath)
+            assertEquals(query.from.toString(), values(location)["from"])
+            assertEquals(query.until.toString(), values(location)["until"])
+            assertEquals("8", values(location)["depth"]); assertEquals("2", values(location)["top"])
+            assertEquals(query.variant.takeIf { filtered }, values(location)["variant"])
+        }
+        assertThrows(AdminValidationException::class.java) { JourneyNavigation(patternDepth = 0).validated() }
+    }
 }

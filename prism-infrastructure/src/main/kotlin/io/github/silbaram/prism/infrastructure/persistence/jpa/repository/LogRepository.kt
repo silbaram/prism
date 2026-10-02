@@ -68,6 +68,18 @@ interface ConversionLogRepository : JpaRepository<ConversionLogEntity, Long> {
                         pageable: Pageable, userId: String? = null, variant: String? = null,
                         afterUser: String? = null): List<FunnelEventRow>
 
+    @Query("SELECT new io.github.silbaram.prism.infrastructure.persistence.jpa.repository.FunnelEventRow(" +
+        "c.id, c.userId, c.variant, c.eventName, c.timestamp) FROM ConversionLogEntity c WHERE " + ELIGIBLE_CONVERSION +
+        " AND c.timestamp >= :from AND c.timestamp < :until AND (:variant IS NULL OR c.variant = :variant)" +
+        " AND (:afterId = 0 OR c.userId > :afterUserId" +
+        " OR (c.userId = :afterUserId AND c.variant > :afterVariant)" +
+        " OR (c.userId = :afterUserId AND c.variant = :afterVariant AND c.timestamp > :afterTimestamp)" +
+        " OR (c.userId = :afterUserId AND c.variant = :afterVariant AND c.timestamp = :afterTimestamp AND c.id > :afterId))" +
+        " ORDER BY c.userId, c.variant, c.timestamp, c.id")
+    fun findJourneyPatternEvents(experimentKey: String, from: LocalDateTime, until: LocalDateTime, variant: String?,
+        afterUserId: String, afterVariant: String, afterTimestamp: LocalDateTime, afterId: Long,
+        pageable: Pageable): List<FunnelEventRow>
+
     @Query("SELECT COUNT(c) FROM ConversionLogEntity c WHERE " + ELIGIBLE_CONVERSION +
         " AND c.userId = :userId AND c.variant = :variant AND c.eventName = :eventName AND c.timestamp >= :start AND c.timestamp < :end")
     fun countWindowConversions(experimentKey: String, userId: String, variant: String, eventName: String,

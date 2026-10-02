@@ -29,6 +29,7 @@ class UserJourneyIntegrationTest {
     @Autowired lateinit var conversions: ConversionLogRepository
     @Autowired lateinit var journeys: UserJourneyService
     @Autowired lateinit var funnels: FunnelAnalysisService
+    @Autowired lateinit var patterns: JourneyPatternService
     @Autowired lateinit var environment: Environment
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     lateinit var journeyRepository: UserJourneyRepository
@@ -49,6 +50,104 @@ class UserJourneyIntegrationTest {
     private fun event(user: String, name: String, at: LocalDateTime, shown: ImpressionLogEntity?, variant: String = "A", key: String = experiment.key) =
         conversions.saveAndFlush(ConversionLogEntity(experimentKey = key, variant = variant, userId = user,
             eventName = name, timestamp = at, impressionId = shown?.id))
+
+    @Test fun `patterns count exact identities and only valid period events including legacy and clock skew`() {
+        val shown = expose("u", at = start.plusMinutes(1))
+        expose("u", at = start.minusHours(1)) // Repeated exposure must not multiply events.
+        event("u", "cart", start, shown)
+        event("u", "purchase", start.plusSeconds(1), null) // Legacy earlier exposure.
+        event("u", "excluded-end", query.until, shown)
+        event("u", "excluded-start", start.minusSeconds(1), shown)
+        event("u", "purchase", start.plusSeconds(2), expose("other")) // Wrong identity.
+        event("u", "cart", start, expose("u", "B"), "B")
+        event("U", "cart", start, expose("U"))
+        event("u ", "cart", start, expose("u "))
+        event("u", "cart", start, expose("u", "A "), "A ")
+        event("orphan", "purchase", start, null)
+        expose("exposure-only", at = start)
+        event("u", "cart", start, expose("u", key = "other"), key = "other")
+        val filter = JourneyPatternQuery(query.from, query.until)
+        val report = patterns.report(experiment.id!!, filter)
+        assertEquals(6, report.events)
+        val a = report.groups.single { it.variant == "A" }
+        assertEquals(3, a.users)
+        assertEquals(2, a.patterns.first().users)
+        assertEquals(listOf("U", "u "), a.patterns.first().sampleUsers)
+        assertEquals(listOf(listOf("cart"), listOf("purchase")), a.patterns.last().path.groups)
+        assertEquals(100.0, a.patterns.last().goalPercent)
+        val exact = patterns.report(experiment.id!!, filter.copy(variant = "A "))
+        assertEquals(1, exact.events); assertEquals("A ", exact.groups.single().variant)
+        assertTrue(patterns.report(experiment.id!!, filter.copy(variant = "absent")).groups.isEmpty())
+    }
+
+    @Test fun `pattern scan completes users and same timestamp groups across storage pages`() {
+        val oversized = expose("0")
+        val long = expose("1")
+        conversions.saveAllAndFlush((0..1004).map { ConversionLogEntity(experimentKey = experiment.key,
+            userId = "0", variant = "A", eventName = "cart", timestamp = start, impressionId = oversized.id) } +
+            (0..993).map { ConversionLogEntity(experimentKey = experiment.key, userId = "1", variant = "A",
+                eventName = "cart", timestamp = start.plusSeconds(it.toLong()), impressionId = long.id) })
+        // The next simultaneous pair straddles the 2,000-row boundary.
+        for (user in listOf("2", "한글", "\uE000", "\uD83D\uDE00")) {
+            val shown = expose(user)
+            event(user, "checkout", start, shown); event(user, "cart", start, shown)
+            event(user, "purchase", start.plusSeconds(1), shown)
+        }
+        val report = patterns.report(experiment.id!!, JourneyPatternQuery(query.from, query.until))
+        assertEquals(2011, report.events)
+        val group = report.groups.first()
+        assertEquals(6, group.users); assertEquals(1, group.excludedUsers)
+        val path = group.patterns.first()
+        assertEquals(4, path.users); assertEquals(4, path.goals)
+        assertEquals(listOf(listOf("cart", "checkout"), listOf("purchase")), path.path.groups)
+        assertEquals(3, path.sampleUsers.size)
+        assertTrue(group.patterns.last().path.truncated)
+    }
+
+    @Test fun `pattern page escapes names and round trips filters through timeline pagination and proxy for reader roles`() {
+        val user = "u & ? + / <script>alert(1)</script> "
+        val shown = expose(user, "A ")
+        event(user, "<img src=x onerror=alert(1)>", start, shown, "A ")
+        event(user, "purchase", start.plusSeconds(1), shown, "A ")
+        val base = "/admin/experiments/${experiment.id}/journeys/patterns"
+        val period = mapOf("from" to start.plusNanos(123000).toString(), "until" to query.until.toString(), "depth" to "8", "top" to "2")
+        HttpClient.newHttpClient().use { assertEquals(302, get(it, base).statusCode()) }
+        for (role in listOf("admin", "viewer")) loggedIn(role).use { client ->
+            fun throughProxy(route: String): String {
+                assertTrue(route.startsWith("/prism/admin/experiments/"), route)
+                val response = client.send(HttpRequest.newBuilder(uri(route.removePrefix("/prism")))
+                    .header("X-Forwarded-Prefix", "/prism").GET().build(), HttpResponse.BodyHandlers.ofString())
+                assertEquals(200, response.statusCode(), response.body())
+                return response.body()
+            }
+            for (filtered in listOf(false, true)) {
+                val values = period + if (filtered) mapOf("variant" to "A ") else emptyMap()
+                val source = "/prism$base?" + params(values)
+                val list = throughProxy(source)
+                assertTrue(list.contains("id=\"from\" name=\"from\" type=\"text\""))
+                assertFalse(list.contains("<script>alert(1)</script>"))
+                val link = Regex("href=\"([^\"]*/journeys/user[^\"]+)\"").find(list)!!.groupValues[1].replace("&amp;", "&")
+                val detail = throughProxy(link + "&size=1")
+                val back = href(detail, "경로 패턴으로 돌아가기")
+                assertEquals(values, queryValues(back)); throughProxy(back)
+            }
+            val full = throughProxy("/prism$base?" + params(period + ("from" to query.from.toString())))
+            assertTrue(full.contains("&lt;img")); assertFalse(full.contains("<img src=x"))
+            val link = Regex("href=\"([^\"]*/journeys/user[^\"]+)\"").find(full)!!.groupValues[1].replace("&amp;", "&")
+            val next = throughProxy(href(throughProxy(link + "&size=1"), "다음 행동"))
+            val returned = queryValues(href(next, "경로 패턴으로 돌아가기"))
+            assertEquals("8", returned["depth"]); assertEquals("2", returned["top"])
+            assertNull(returned["variant"])
+            for (bad in listOf(mapOf("depth" to "1"), mapOf("top" to "51"), mapOf("from" to "bad"),
+                mapOf("variant" to " "), mapOf("until" to "2999-01-01T00:00:00"))) {
+                assertEquals(400, get(client, "$base?" + params(period + bad)).statusCode())
+            }
+            assertEquals(404, get(client, "/admin/experiments/999999999/journeys/patterns").statusCode())
+        }
+        experiment.goalEventName = null; experiments.saveAndFlush(experiment)
+        assertTrue(patterns.report(experiment.id!!, JourneyPatternQuery(query.from, query.until)).groups
+            .flatMap { it.patterns }.all { it.goalPercent == null })
+    }
 
     @Test fun `user summaries preserve exact identities periods variants and valid goal attribution`() {
         val a = expose("u")

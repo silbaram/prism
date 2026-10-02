@@ -6,6 +6,7 @@
         <h3 th:text="${experiment.key + ' · 사용자 여정'}"></h3>
         <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}(id=${experiment.id})}">실험 상세</a>
     </div>
+    <a class="btn btn-outline-primary mb-3" th:href="@{/admin/experiments/{id}/journeys/patterns(id=${experiment.id},from=${query.from},until=${query.until},variant=${query.variant})}">경로 패턴 보기</a>
     <p>조회 기간 안에 노출 또는 이벤트가 기록된 사용자를 변형별로 표시합니다. 이름의 대소문자와 앞뒤 공백을 구분합니다.</p>
     <form method="get" th:action="@{/admin/experiments/{id}/journeys(id=${experiment.id})}" class="card p-3 mb-3">
         <div class="row g-3">

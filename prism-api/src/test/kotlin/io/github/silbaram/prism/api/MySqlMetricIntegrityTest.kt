@@ -239,6 +239,21 @@ class MySqlMetricIntegrityTest {
             next.forEach { paged += it.userId to it.variant }
         } while (cursor != null)
         assertEquals(rows.map { it.userId to it.variant }, paged)
+        var patternCursor: FunnelEventRow? = null
+        val patternEvents = mutableListOf<FunnelEventRow>()
+        do {
+            val next = conversions.findJourneyPatternEvents("native-journey", at, at.plusDays(1), null,
+                patternCursor?.userId.orEmpty(), patternCursor?.variant.orEmpty(), patternCursor?.timestamp ?: at,
+                patternCursor?.id ?: 0L, org.springframework.data.domain.PageRequest.of(0, 1))
+            patternCursor = next.firstOrNull()
+            patternEvents += next
+        } while (patternCursor != null)
+        assertEquals(rows.map { it.userId to it.variant }, patternEvents.map { it.userId to it.variant })
+        assertTrue(patternEvents.all { it.timestamp.isEqual(at) })
+        val exactPatterns = conversions.findJourneyPatternEvents("native-journey", at, at.plusDays(1), variants.last(),
+            "", "", at, 0L, org.springframework.data.domain.PageRequest.of(0, 100))
+        assertEquals(names.toSet(), exactPatterns.map { it.userId }.toSet())
+        assertTrue(exactPatterns.all { it.variant == variants.last() })
         val first = journeys.logs("native-journey", "Case ", "A ", at, at.plusDays(1), null, null, null, 1).single()
         assertEquals(0, first.kind); assertEquals(at, first.timestamp)
         val second = journeys.logs("native-journey", "Case ", "A ", at, at.plusDays(1), first.timestamp, first.kind, first.id, 1).single()

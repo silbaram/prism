@@ -5,9 +5,10 @@ import io.github.silbaram.prism.admin.service.FunnelQuery
 import io.github.silbaram.prism.admin.service.FunnelSelection
 import io.github.silbaram.prism.admin.service.JourneyQuery
 import io.github.silbaram.prism.admin.service.validateJourneyIdentity
+import io.github.silbaram.prism.admin.service.validatePatternOptions
 import java.net.URLEncoder
 
-enum class JourneyListSource { USERS, FUNNEL }
+enum class JourneyListSource { USERS, FUNNEL, PATTERNS }
 
 /** Carry only list state missing from the timeline query; never nest a complete URL or repeat steps. */
 data class JourneyNavigation(
@@ -17,7 +18,9 @@ data class JourneyNavigation(
     val listGoalState: String = "ALL",
     val listSize: Int = 50,
     val listAfterUser: String? = null,
-    val listAfterVariant: String? = null
+    val listAfterVariant: String? = null,
+    val patternDepth: Int = 5,
+    val patternTop: Int = 20
 ) {
     fun validated(): JourneyNavigation {
         // Thymeleaf can emit empty optional parameters. Empty IDs are not valid identities.
@@ -25,6 +28,7 @@ data class JourneyNavigation(
             listAfterVariant = listAfterVariant?.takeUnless(String::isEmpty))
         require(listSize in 1..100 && listGoalState in setOf("ALL", "REACHED", "NOT_REACHED")) { "목록 복귀 조건을 확인하세요." }
         validateJourneyIdentity(navigation.listAfterUser); validateJourneyIdentity(navigation.listAfterVariant)
+        validatePatternOptions(patternDepth, patternTop)
         if (listSource == JourneyListSource.USERS) {
             require((navigation.listAfterUser == null) == (navigation.listAfterVariant == null)) { "목록 복귀 조건을 확인하세요." }
         }
@@ -49,6 +53,11 @@ data class JourneyNavigation(
                     "windowHours" to funnel.windowHours, "variant" to query.variant, "stage" to stage,
                     "selection" to selection.name, "size" to listSize, "afterUser" to listAfterUser))
                 "funnel/users"
+            }
+            JourneyListSource.PATTERNS -> {
+                parameters.putAll(mapOf("from" to query.from, "until" to query.until,
+                    "variant" to query.variant.takeIf { listFilterVariant }, "depth" to patternDepth, "top" to patternTop))
+                "journeys/patterns"
             }
         }
         val encoded = parameters.filterValues { it != null }.entries.joinToString("&") { (name, value) ->

@@ -63,6 +63,7 @@ class UserJourneyController(private val experiments: ExperimentService, private 
         model.addAttribute("navigation", source)
         model.addAttribute("journeyListReturnTo", returnLocation?.takeIf { source.listSource == JourneyListSource.USERS })
         model.addAttribute("funnelListReturnTo", returnLocation?.takeIf { source.listSource == JourneyListSource.FUNNEL })
+        model.addAttribute("patternListReturnTo", returnLocation?.takeIf { source.listSource == JourneyListSource.PATTERNS })
         val experiment = experiments.getExperimentById(id)
         model.addAttribute("experiment", experiment)
         model.addAttribute("hasGoal", !experiment.goalEventName.isNullOrBlank())
