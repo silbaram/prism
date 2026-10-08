@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div class="container">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <h3 th:text="${formHeading}">새 퍼널 저장</h3>
+        <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/funnels(id=${experiment.id})}">저장된 퍼널</a>
+    </div>
+    <p class="text-break">실험: <strong th:text="${experiment.key}"></strong></p>
+    <div th:if="${formError != null}" class="alert alert-danger" role="alert">
+        <p class="mb-1" th:text="${formError}"></p>
+        <a th:if="${editing}" th:href="@{/admin/experiments/{id}/funnels/{funnelId}/edit(id=${experiment.id},funnelId=${funnelId})}">저장된 최신 조건 다시 불러오기</a>
+    </div>
+    <form th:if="${canManageExperiments}" method="post" id="savedFunnelForm" class="card p-3 p-md-4"
+          th:action="${editing} ? @{/admin/experiments/{id}/funnels/{funnelId}(id=${experiment.id},funnelId=${funnelId})} : @{/admin/experiments/{id}/funnels(id=${experiment.id})}">
+        <input th:if="${editing}" type="hidden" name="version" th:value="${form.version}">
+        <div class="mb-3">
+            <label for="name" class="form-label">퍼널 이름</label>
+            <input id="name" name="name" class="form-control" maxlength="120" required th:value="${form.name}" placeholder="예: 장바구니에서 구매까지">
+        </div>
+        <div class="mb-3">
+            <label for="description" class="form-label">설명 (선택)</label>
+            <textarea id="description" name="description" class="form-control" rows="2" maxlength="1000" th:text="${form.description}"></textarea>
+        </div>
+        <div class="mb-3">
+            <label for="steps" class="form-label">이벤트 순서 (한 줄에 하나, 2–8개)</label>
+            <textarea id="steps" name="steps" class="form-control" rows="4" maxlength="4096" required
+                      aria-describedby="stepsHelp" placeholder="add_to_cart&#10;checkout&#10;purchase" th:text="${form.steps}"></textarea>
+            <div id="stepsHelp" class="form-text">이벤트 이름의 대소문자와 공백을 구분합니다. 이름은 각각 255자 이내이며, 같은 이름을 두 단계에 사용할 수 없습니다.</div>
+            <div class="input-group mt-2">
+                <input id="savedFunnelEventPicker" class="form-control" list="savedFunnelEventOptions" data-event-search maxlength="255" aria-label="추가할 퍼널 이벤트" placeholder="등록·수집된 이벤트 검색">
+                <datalist id="savedFunnelEventOptions"></datalist>
+                <button type="button" class="btn btn-outline-secondary" data-append-event="savedFunnelEventPicker" data-event-target="steps">단계 추가</button>
+            </div>
+            <div class="form-text">현재 실험의 수집 여부는 <a th:href="@{/admin/experiments/{id}/events(id=${experiment.id})}">이벤트별 집계</a>에서 확인하세요.</div>
+        </div>
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label for="windowHours" class="form-label">첫 단계 이후 제한 시간</label>
+                <div class="input-group"><input id="windowHours" name="windowHours" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="3"
+                    class="form-control" required th:value="${form.windowHours}" aria-describedby="windowHelp"><span class="input-group-text">시간</span></div>
+                <div id="windowHelp" class="form-text">1–720시간. 첫 단계부터 이 시간 미만에 다음 단계에 도달해야 합니다.</div>
+            </div>
+            <div class="col-md-6">
+                <label for="periodMode" class="form-label">조회 기간</label>
+                <select id="periodMode" name="periodMode" class="form-select" aria-describedby="periodHelp">
+                    <option value="LAST_7_DAYS" th:selected="${form.periodMode == 'LAST_7_DAYS'}">최근 7일</option>
+                    <option value="LAST_30_DAYS" th:selected="${form.periodMode == 'LAST_30_DAYS'}">최근 30일</option>
+                    <option value="FIXED" th:selected="${form.periodMode == 'FIXED'}">고정 기간</option>
+                    <option th:if="${form.periodMode != 'LAST_7_DAYS' and form.periodMode != 'LAST_30_DAYS' and form.periodMode != 'FIXED'}"
+                            th:value="${form.periodMode}" th:text="${form.periodMode}" selected>기간을 선택하세요</option>
+                </select>
+                <div id="periodHelp" class="form-text">최근 기간은 조회 시각부터 7일·30일 전까지 계산합니다. 고정 기간은 최대 366일입니다.</div>
+            </div>
+        </div>
+        <fieldset id="fixedPeriodFields" class="mb-3">
+            <legend class="fs-6">고정 기간의 시작·종료 (UTC)</legend>
+            <div class="row g-3">
+                <div class="col-md-6"><label for="from" class="form-label">조회 시작 (포함)</label>
+                    <input id="from" name="from" th:type="${form.fromInputType}" step="0.001" maxlength="32" placeholder="2026-01-01T00:00:00.123456" class="form-control" th:value="${form.from}"></div>
+                <div class="col-md-6"><label for="until" class="form-label">조회 종료 (제외)</label>
+                    <input id="until" name="until" th:type="${form.untilInputType}" step="0.001" maxlength="32" placeholder="2026-01-01T00:00:00.123456" class="form-control" th:value="${form.until}"></div>
+            </div>
+            <div class="form-text">고정 기간을 선택했을 때만 사용합니다. 종료는 현재 시각 이전이어야 합니다. 마이크로초가 포함된 시각은 정밀도를 유지하도록 UTC 날짜·시간 문자열로 표시합니다.</div>
+        </fieldset>
+        <p class="small text-muted">저장된 조건으로 조회하면 사용자·변형별 최초 첫 단계를 기준으로 순서와 제한 시간을 적용합니다. 최근 기간을 조회한 뒤 사용자 목록으로 이동해도 해당 조회의 실제 시작·종료 시각을 유지합니다.</p>
+        <div class="d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-primary" th:text="${editing ? '변경 저장' : '퍼널 저장'}">퍼널 저장</button>
+            <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/funnels(id=${experiment.id})}">취소</a>
+        </div>
+    </form>
+    <script th:src="@{/js/event-picker.js}" th:data-suggestions-url="@{/admin/events/suggestions}" defer></script>
+    <script th:src="@{/js/saved-funnel-form.js}" defer></script>
+</div>
+</th:block>
+</html>

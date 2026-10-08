@@ -3,25 +3,42 @@
 <th:block th:replace="~{layout/default :: layout(~{::div})}">
     <div class="container">
         <h3 th:text="${experiment.key + ' · 이벤트별 집계'}">이벤트별 집계</h3>
-        <p class="text-muted">노출 이후에 발생한 이벤트입니다. 이벤트별 사용자는 서로 중복될 수 있으며 합산하지 않습니다.
-            목표 이벤트 외의 이벤트는 실험 CVR에 포함되지 않습니다. 이 표는 이벤트 발생 순서에 따른 퍼널 전환율을 나타내지 않습니다.</p>
-        <table class="table table-striped">
-            <thead><tr><th>이벤트</th><th>Variant</th><th>고유 사용자</th><th>발생 횟수</th></tr></thead>
+        <p>이벤트별 CVR은 <strong>해당 이벤트 발생 고유 사용자 / 같은 변형의 노출 고유 사용자</strong>입니다.
+            전체 기간의 유효한 노출 귀속을 사용하며 목표·가드레일·보조 이벤트 모두 조회할 수 있습니다.
+            노출이 없으면 —, 노출은 있고 이벤트가 없으면 0%입니다.</p>
+        <p class="text-muted">이벤트별 사용자는 서로 중복될 수 있어 합산하지 않습니다. 이 조회로 목표 이벤트가 바뀌지 않으며,
+            실험 상세 CVR에는 목표 이벤트만 포함됩니다. 단계 순서를 고려한 전환율은 순서형 퍼널에서 확인하세요.</p>
+        <form method="get" th:action="@{/admin/experiments/{id}/events(id=${experiment.id})}" class="d-flex gap-2 mb-3">
+            <label for="eventFilter" class="visually-hidden">이벤트 이름</label>
+            <input id="eventFilter" name="eventName" class="form-control" maxlength="255" list="eventOptions" data-event-search
+                   th:value="${selectedEvent}" placeholder="전체 이벤트 또는 정확한 이벤트 이름">
+            <datalist id="eventOptions"></datalist>
+            <button class="btn btn-primary">조회</button>
+            <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/events(id=${experiment.id})}">전체</a>
+        </form>
+        <div class="table-responsive"><table class="table table-striped">
+            <thead><tr><th>이벤트</th><th>Variant</th><th>노출 사용자</th><th>전환 사용자</th><th>발생 횟수</th><th>CVR</th><th>최근 발생 (UTC)</th><th>SDK 적용</th></tr></thead>
             <tbody>
                 <tr th:each="event : ${events}">
-                    <td><span th:text="${event.eventName}">purchase</span>
+                    <td><span style="white-space: pre-wrap" th:text="${event.eventName}">purchase</span>
                         <span th:if="${event.kind == 'PRIMARY'}" class="badge bg-primary">목표</span>
                         <span th:if="${event.kind == 'GUARDRAIL'}" class="badge bg-warning text-dark">가드레일</span>
                         <span th:if="${event.kind == 'SECONDARY'}" class="badge bg-secondary">보조</span></td>
                     <td th:text="${event.variant}">A</td>
+                    <td th:text="${event.exposedUsers}">1</td>
                     <td th:text="${event.users}">1</td>
                     <td th:text="${event.events}">2</td>
+                    <td th:text="${event.cvr == null ? '—' : #numbers.formatDecimal(event.cvr, 1, 2) + '%'}"></td>
+                    <td th:text="${event.lastOccurredAt == null ? '수집된 이벤트 없음' : event.lastOccurredAt}"></td>
+                    <td><a th:href="@{/admin/experiments/{id}/integration(id=${experiment.id},eventName=${event.eventName})}">코드 보기</a></td>
                 </tr>
-                <tr th:if="${events.empty}"><td colspan="4" class="text-center text-muted">이벤트 데이터가 없습니다.</td></tr>
+                <tr th:if="${events.empty}"><td colspan="8" class="text-center text-muted">이벤트 데이터가 없습니다.</td></tr>
             </tbody>
-        </table>
+        </table></div>
         <a th:href="@{/admin/experiments/{id}(id=${experiment.id})}" class="btn btn-outline-secondary">실험 통계로 돌아가기</a>
         <a th:href="@{/admin/experiments/{id}/funnel(id=${experiment.id})}" class="btn btn-outline-secondary">순서형 퍼널 보기</a>
+        <a th:href="@{/admin/experiments/{id}/integration(id=${experiment.id})}" class="btn btn-outline-secondary">SDK 적용 가이드</a>
+        <script th:src="@{/js/event-picker.js}" th:data-suggestions-url="@{/admin/events/suggestions}" defer></script>
     </div>
 </th:block>
 </html>

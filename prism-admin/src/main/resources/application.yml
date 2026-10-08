@@ -1,5 +1,7 @@
 server:
   port: 8070
+  # Eight 255-character Unicode event names plus drill-down state exceed Tomcat's default 8KB request line/header limit.
+  max-http-request-header-size: 64KB
 
 spring:
   config:

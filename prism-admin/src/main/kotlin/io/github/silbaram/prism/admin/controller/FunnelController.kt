@@ -5,6 +5,10 @@ import io.github.silbaram.prism.admin.exception.requireValidInput as require
 import io.github.silbaram.prism.admin.service.ExperimentService
 import io.github.silbaram.prism.admin.service.FunnelAnalysisService
 import io.github.silbaram.prism.admin.service.FunnelQuery
+import io.github.silbaram.prism.admin.service.FunnelSelection
+import io.github.silbaram.prism.admin.controller.dto.JourneyNavigation
+import io.github.silbaram.prism.admin.controller.dto.JourneyListSource
+import io.github.silbaram.prism.admin.controller.dto.utcDateTimeInputType
 import org.springframework.stereotype.Controller
 import org.springframework.ui.Model
 import org.springframework.web.bind.annotation.GetMapping
@@ -18,6 +22,28 @@ import java.time.temporal.ChronoUnit
 @Controller
 @RequestMapping("/admin/experiments/{id}/funnel")
 class FunnelController(private val experiments: ExperimentService, private val funnels: FunnelAnalysisService) {
+    @GetMapping("/users")
+    fun users(@PathVariable id: Long, @RequestParam steps: String, @RequestParam from: String,
+              @RequestParam until: String, @RequestParam(defaultValue = "24") windowHours: Int,
+              @RequestParam variant: String, @RequestParam(defaultValue = "1") stage: Int,
+              @RequestParam(defaultValue = "REACHED") selection: FunnelSelection,
+              @RequestParam(required = false) afterUser: String?, @RequestParam(defaultValue = "50") size: Int,
+              model: Model): String {
+        require(steps.length <= 4096) { "퍼널 단계 입력은 4,096자 이하여야 합니다." }
+        val query = FunnelQuery(steps.lines().filter(String::isNotBlank), parseTime(from, "조회 시작"), parseTime(until, "조회 종료"), windowHours)
+        model.addAttribute("experiment", experiments.getExperimentById(id))
+        model.addAttribute("query", query)
+        model.addAttribute("steps", steps)
+        model.addAttribute("variant", variant)
+        model.addAttribute("stage", stage)
+        model.addAttribute("selection", selection.name)
+        model.addAttribute("size", size)
+        model.addAttribute("users", funnels.users(id, query, variant, stage, selection, afterUser, size))
+        model.addAttribute("navigation", JourneyNavigation(listSource = JourneyListSource.FUNNEL,
+            listSize = size, listAfterUser = afterUser))
+        return "journey/funnel-users"
+    }
+
     @GetMapping
     fun index(@PathVariable id: Long, @RequestParam(required = false) steps: String?,
               @RequestParam(required = false) from: String?, @RequestParam(required = false) until: String?,
@@ -27,6 +53,8 @@ class FunnelController(private val experiments: ExperimentService, private val f
         model.addAttribute("steps", steps.orEmpty())
         model.addAttribute("from", from ?: now.minusDays(30).toString())
         model.addAttribute("until", until ?: now.toString())
+        model.addAttribute("fromInputType", utcDateTimeInputType(from ?: now.minusDays(30).toString()))
+        model.addAttribute("untilInputType", utcDateTimeInputType(until ?: now.toString()))
         model.addAttribute("windowHours", windowHours)
         model.addAttribute("report", null)
         if (steps != null) {

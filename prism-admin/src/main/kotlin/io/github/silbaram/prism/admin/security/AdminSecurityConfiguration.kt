@@ -39,6 +39,8 @@ class AdminSecurityConfiguration {
         http.authorizeHttpRequests {
             it.requestMatchers("/login", "/error").permitAll()
                 .requestMatchers(HttpMethod.GET, "/admin/experiments/new", "/admin/experiments/*/edit").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET, "/admin/experiments/*/funnels/new", "/admin/experiments/*/funnels/*/edit",
+                    "/admin/experiments/*/funnels/*/copy").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET, "/**").hasAnyRole("ADMIN", "VIEWER")
                 .requestMatchers(HttpMethod.POST, "/admin/simulator/test").hasAnyRole("ADMIN", "VIEWER")
                 .requestMatchers(HttpMethod.POST, "/logout").authenticated()

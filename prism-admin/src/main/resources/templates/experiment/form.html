@@ -31,8 +31,11 @@
                 <div class="mb-3">
                     <label for="goalEventName" class="form-label">목표 이벤트</label>
                     <input id="goalEventName" type="text" name="goalEventName" class="form-control"
-                           th:value="${experiment.goalEventName}" th:readonly="${locked}" maxlength="255" placeholder="예: purchase" th:required="${!locked}">
-                    <div class="form-text">이 이벤트를 발생시킨 고유 사용자만 CVR에 포함됩니다. 이벤트 이름은 대소문자를 구분합니다.</div>
+                           th:value="${experiment.goalEventName}" th:readonly="${locked}" maxlength="255" placeholder="예: purchase" th:required="${!locked}"
+                           list="eventOptions" data-event-search>
+                    <datalist id="eventOptions"></datalist>
+                    <div class="form-text">등록·수집된 이름을 검색하거나 새 이름을 입력하세요. 대소문자와 앞뒤 공백을 구분합니다.
+                        <a th:href="@{/admin/events}">이벤트 카탈로그</a>에서 수집 여부를 확인할 수 있습니다.</div>
                 </div>
 
                 <div class="mb-3">
@@ -45,20 +48,27 @@
                 <div class="row mb-3">
                     <div class="col">
                         <label class="form-label">시작 시각 (UTC)</label>
-                        <input type="datetime-local" step="0.000001" name="startsAt" class="form-control"
+                        <input th:type="${experiment.startsAtInputType}" step="0.001" name="startsAt" class="form-control"
+                               maxlength="32" placeholder="2030-01-01T00:00:00.123456"
                                th:value="${experiment.startsAt}" th:readonly="${locked}">
                     </div>
                     <div class="col">
                         <label class="form-label">종료 시각 (UTC)</label>
-                        <input type="datetime-local" step="0.000001" name="endsAt" class="form-control"
+                        <input th:type="${experiment.endsAtInputType}" step="0.001" name="endsAt" class="form-control"
+                               maxlength="32" placeholder="2030-01-02T00:00:00.123456"
                                th:value="${experiment.endsAt}" th:readonly="${locked}">
                     </div>
                     <div class="form-text">생성 후 수정 화면에서 SCHEDULED를 선택하면 예약됩니다. 시작·예약 후 기간은 고정됩니다.</div>
+                    <div class="form-text">마이크로초가 포함된 시각은 정밀도를 유지하도록 UTC 날짜·시간 문자열로 표시합니다.</div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">가드레일 이벤트</label>
-                    <textarea name="guardrailEvents" class="form-control" rows="3" th:readonly="${locked}"
+                    <textarea id="guardrailEvents" name="guardrailEvents" class="form-control" rows="3" th:readonly="${locked}"
                               th:text="${experiment.guardrailEvents}"></textarea>
+                    <div class="input-group mt-2" th:if="${!locked}">
+                        <input id="guardrailPicker" class="form-control" list="eventOptions" data-event-search maxlength="255" aria-label="추가할 가드레일 이벤트" placeholder="이벤트 검색">
+                        <button type="button" class="btn btn-outline-secondary" data-append-event="guardrailPicker" data-event-target="guardrailEvents">가드레일 추가</button>
+                    </div>
                     <div class="form-text">오류·실패 등 함께 확인할 이벤트 이름을 줄마다 하나씩 지정하세요. 목표 이벤트와 구분하며 최대 20개입니다.</div>
                 </div>
                 <div class="mb-3">
@@ -348,6 +358,7 @@
             }
         });
         </script>
+        <script th:src="@{/js/event-picker.js}" th:data-suggestions-url="@{/admin/events/suggestions}" defer></script>
     </div>
 </th:block>
 

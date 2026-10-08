@@ -45,7 +45,7 @@ class ExperimentService(
         val experiment = ExperimentEntity(
             key = dto.key,
             description = dto.description,
-            goalEventName = dto.goalEventName.trim(),
+            goalEventName = dto.goalEventName,
             status = ExperimentStatus.DRAFT,
             trafficAllocation = dto.trafficAllocation, startsAt = dto.startsAt, endsAt = dto.endsAt,
             guardrailEventNames = dto.guardrailEventNames.toMutableSet(),
@@ -103,7 +103,7 @@ class ExperimentService(
 
         experiment.key = dto.key
         experiment.description = dto.description
-        if (!locked) experiment.goalEventName = dto.goalEventName.trim()
+        if (!locked) experiment.goalEventName = dto.goalEventName
         experiment.status = dto.status
         experiment.configurationLocked = locked || dto.status != ExperimentStatus.DRAFT
         experiment.trafficAllocation = dto.trafficAllocation
@@ -279,7 +279,7 @@ class ExperimentService(
             require(instant >= java.time.Instant.ofEpochSecond(1) && instant <= java.time.Instant.ofEpochSecond(Int.MAX_VALUE.toLong()) &&
                 it.nano % 1000 == 0) { "시각은 MySQL TIMESTAMP 범위 내의 마이크로초 정밀도 UTC 값이어야 합니다." }
         }
-        require(guardrails.size <= 20 && guardrails.all { it.isNotBlank() && it.length <= 255 && it == it.trim() && it != goal.trim() }) {
+        require(guardrails.size <= 20 && guardrails.all { it.isNotBlank() && it.length <= 255 && it != goal }) {
             "가드레일은 목표와 다른 1–255자 이벤트 이름을 최대 20개 지정하세요."
         }
     }
@@ -311,6 +311,6 @@ class ExperimentService(
     }
 
     private fun validateGoal(goal: String) {
-        require(goal.isNotBlank() && goal.trim().length <= 255) { "목표 이벤트는 1–255자여야 합니다." }
+        require(goal.isNotBlank() && goal.length <= 255) { "목표 이벤트는 1–255자여야 합니다." }
     }
 }

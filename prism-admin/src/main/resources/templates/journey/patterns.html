@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div class="container">
+    <div class="d-flex flex-wrap justify-content-between gap-2 mb-3">
+        <h3 th:text="${experiment.key + ' · 경로 패턴'}"></h3>
+        <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}(id=${experiment.id})}">실험 상세</a>
+    </div>
+    <p>사용자·변형마다 조회 기간의 첫 행동부터 경로 하나를 집계합니다. 반복 행동을 보존하고 같은 시각의 행동은 순서 없는 묶음으로 표시합니다.</p>
+    <form method="get" th:action="@{/admin/experiments/{id}/journeys/patterns(id=${experiment.id})}" class="card p-3 mb-3">
+        <div class="row g-3">
+            <div class="col-md-6"><label for="from" class="form-label">조회 시작 (UTC, 포함)</label><input id="from" name="from" th:type="${query.from.nano % 1000000 == 0 ? 'datetime-local' : 'text'}" step="0.001" maxlength="32" required class="form-control" th:value="${query.from}"></div>
+            <div class="col-md-6"><label for="until" class="form-label">조회 종료 (UTC, 제외)</label><input id="until" name="until" th:type="${query.until.nano % 1000000 == 0 ? 'datetime-local' : 'text'}" step="0.001" maxlength="32" required class="form-control" th:value="${query.until}"></div>
+            <div class="col-md-6"><label for="variant" class="form-label">변형 (정확한 이름, 비우면 전체)</label><input id="variant" name="variant" maxlength="255" class="form-control" th:value="${query.variant}"></div>
+            <div class="col-md-3"><label for="depth" class="form-label">최대 이벤트 수</label><input id="depth" name="depth" type="number" min="2" max="8" required class="form-control" th:value="${query.depth}"></div>
+            <div class="col-md-3"><label for="top" class="form-label">변형별 표시할 경로 수</label><input id="top" name="top" type="number" min="1" max="50" required class="form-control" th:value="${query.top}"></div>
+        </div>
+        <div class="form-text">기본 최근 30일 · 최대 366일. 마이크로초가 포함된 시각은 UTC 문자열 입력으로 표시합니다.</div>
+        <button class="btn btn-primary mt-3">경로 집계</button>
+    </form>
+    <p>유효하게 노출에 귀속된 이벤트만 사용하며 노출 자체는 경로에 넣지 않습니다. 비중의 분모는 해당 변형에서 유효한 이벤트가 있는 사용자 전체입니다.
+        목표 발생률은 이 경로 사용자 중 조회 기간 어디서든 목표 이벤트가 발생한 비율입니다. 표시 길이 이후의 목표도 포함하며 순서형 퍼널 전환율이나 인과 효과를 뜻하지 않습니다.</p>
+    <p class="text-muted">같은 시각의 묶음이 최대 이벤트 수를 넘으면 그 묶음 직전까지 표시합니다. 첫 묶음부터 한도를 넘는 사용자는 별도 제외 수로 표시합니다.
+        세션을 구분하지 않으며 기간 밖의 행동은 포함하지 않습니다. 기간 내 마지막 행동은 영구 이탈을 뜻하지 않습니다. 늦게 수집된 데이터로 재조회 결과가 달라질 수 있습니다.</p>
+    <p id="patternSummary" th:text="${'조회 이벤트 ' + report.events + '건 · 변형별 사용자 수 내림차순'}"></p>
+    <p th:if="${report.goalEventName != null}">집계 목표: <strong style="white-space: pre-wrap; overflow-wrap: anywhere" th:text="${report.goalEventName}"></strong></p>
+    <p th:if="${report.goalEventName == null}">목표 미설정 · 경로별 목표 발생률을 계산하지 않습니다.</p>
+    <section th:each="group : ${report.groups}" class="card p-3 mb-3 pattern-group">
+        <h4 style="white-space: pre-wrap; overflow-wrap: anywhere" th:text="${'변형 ' + group.variant}"></h4>
+        <p class="pattern-counts" th:text="${'사용자 ' + group.users + '명 · 서로 다른 경로 ' + group.patternCount + '개 · 표시하지 않은 경로의 사용자 ' + group.unlistedUsers + '명 · 첫 동일 시각 묶음의 길이 초과로 제외 ' + group.excludedUsers + '명'}"></p>
+        <div class="table-responsive"><table class="table align-middle pattern-table" style="min-width: 850px">
+            <thead style="white-space: nowrap"><tr><th>기간 내 경로</th><th>사용자 수</th><th>변형 내 비중</th><th>목표 발생 사용자 / 발생률</th><th>예시 사용자 (최대 3명)</th></tr></thead>
+            <tbody>
+            <tr th:each="row : ${group.patterns}">
+                <td style="min-width: 280px; max-width: 560px">
+                    <th:block th:each="actions, position : ${row.path.groups}">
+                        <span th:if="${!position.first}" aria-label="다음 시각"> → </span>
+                        <span class="d-inline-block border rounded p-1 my-1" style="max-width: 100%">
+                            <small th:if="${actions.size() > 1}" class="d-block text-muted">동일 시각 · 순서 없음</small>
+                            <th:block th:each="action, actionPosition : ${actions}">
+                                <span th:if="${!actionPosition.first}"> + </span><span class="badge bg-light text-dark" style="white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%" th:text="${action}"></span>
+                            </th:block>
+                        </span>
+                    </th:block>
+                    <small class="d-block text-muted" th:text="${row.path.truncated ? '… 이후 행동 있음' : '기간 내 마지막 행동'}"></small>
+                </td>
+                <td class="pattern-users"><a th:text="${row.users}" th:href="@{/admin/experiments/{id}/journeys/patterns/users(id=${experiment.id},from=${query.from},until=${query.until},variant=${group.variant},depth=${query.depth},top=${query.top},pathKey=${row.path.key},goalState='ALL',allVariants=${query.variant == null})}" aria-label="이 경로의 전체 사용자 조회"></a></td>
+                <td th:text="${#numbers.formatDecimal(row.sharePercent, 1, 2) + '%'}"></td>
+                <td><span th:if="${row.goalPercent == null}">목표 미설정</span><th:block th:if="${row.goalPercent != null}"><a class="pattern-goal-users" th:text="${row.goals + '명'}" th:href="@{/admin/experiments/{id}/journeys/patterns/users(id=${experiment.id},from=${query.from},until=${query.until},variant=${group.variant},depth=${query.depth},top=${query.top},pathKey=${row.path.key},goalState='REACHED',allVariants=${query.variant == null})}" aria-label="이 경로에서 목표가 발생한 사용자 조회"></a><span th:text="${' / ' + #numbers.formatDecimal(row.goalPercent, 1, 2) + '%'}"></span></th:block></td>
+                <td><a th:each="user : ${row.sampleUsers}" class="d-block pattern-user" style="white-space: pre-wrap; overflow-wrap: anywhere" th:text="${user}" th:href="@{/admin/experiments/{id}/journeys/user(id=${experiment.id},userId=${user},variant=${group.variant},from=${query.from},until=${query.until},listSource=${navigation.listSource},listFilterVariant=${navigation.listFilterVariant},patternDepth=${navigation.patternDepth},patternTop=${navigation.patternTop})}"></a></td>
+            </tr>
+            <tr th:if="${group.patterns.empty}"><td colspan="5">표시할 경로가 없습니다.</td></tr>
+            </tbody>
+        </table></div>
+    </section>
+    <p th:if="${report.groups.empty}">조건에 맞는 변형 또는 경로가 없습니다.</p>
+    <p class="small text-muted">한 번에 이벤트 200,000건·서로 다른 경로 5,000개까지 집계합니다. 한도를 넘으면 기간이나 변형을 좁혀 다시 조회하세요. 부분 집계는 표시하지 않습니다.</p>
+    <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/journeys(id=${experiment.id},from=${query.from},until=${query.until},variant=${query.variant})}">사용자 여정 목록</a>
+</div>
+</th:block>
+</html>

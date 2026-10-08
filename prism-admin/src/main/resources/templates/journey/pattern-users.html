@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div class="container">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <h3 class="text-break" th:text="${experiment.key + ' · 경로 사용자'}">경로 사용자</h3>
+        <a class="btn btn-outline-secondary" th:href="${patternListReturnTo}">경로 패턴으로 돌아가기</a>
+    </div>
+    <p>변형 <strong style="white-space: pre-wrap; overflow-wrap: anywhere" th:text="${query.variant}"></strong> · 최대 <span th:text="${query.depth}"></span>개 이벤트로 분류한 경로입니다.</p>
+    <p class="text-break"><time th:text="${query.from}"></time> ≤ 발생 시각 (UTC) &lt; <time th:text="${query.until}"></time></p>
+    <section th:if="${users.path != null}" class="card p-3 mb-3" id="selectedPattern">
+        <h4 class="fs-6">선택한 경로</h4>
+        <p class="mb-2">
+            <th:block th:each="actions, position : ${users.path.groups}">
+                <span th:if="${!position.first}" aria-label="다음 시각"> → </span>
+                <span class="d-inline-block border rounded p-1 my-1" style="max-width: 100%">
+                    <small th:if="${actions.size() > 1}" class="d-block text-muted">동일 시각 · 순서 없음</small>
+                    <th:block th:each="action, actionPosition : ${actions}">
+                        <span th:if="${!actionPosition.first}"> + </span><span class="badge bg-light text-dark" style="white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%" th:text="${action}"></span>
+                    </th:block>
+                </span>
+            </th:block>
+        </p>
+        <p class="small text-muted mb-0" th:text="${users.path.truncated ? '… 이후 행동 있음 · 최대 이벤트 수 안의 경로 앞부분이 같은 사용자입니다. 표시 이후 행동은 사용자마다 다를 수 있습니다.' : '기간 내 마지막 행동까지 같은 경로입니다. 기간 밖의 행동이나 영구 이탈 여부를 뜻하지 않습니다.'}"></p>
+    </section>
+    <div class="card p-3 mb-3" id="patternUsersSummary">
+        <p class="mb-1">이 경로 전체 사용자 <strong th:text="${users.totalUsers}"></strong>명 · 현재 필터에 맞는 사용자 <strong th:text="${users.matchedUsers}"></strong>명</p>
+        <p th:if="${users.goalEventName != null}" class="mb-0">기간 내 목표 <strong style="white-space: pre-wrap; overflow-wrap: anywhere" th:text="${users.goalEventName}"></strong> 발생 사용자 <strong th:text="${users.goalUsers}"></strong>명</p>
+        <p th:if="${users.goalEventName == null}" class="mb-0">목표 미설정 · 목표 발생 여부를 집계하지 않습니다.</p>
+    </div>
+    <p>경로 집계와 동일하게 유효하게 노출에 귀속된 이벤트로 사용자를 분류합니다. 목표 발생 여부는 이 조회 기간 전체를 기준으로 하며 표시한 경로 이후의 목표도 포함합니다.</p>
+    <form method="get" th:action="@{/admin/experiments/{id}/journeys/patterns/users(id=${experiment.id})}" class="card p-3 mb-3">
+        <input type="hidden" name="from" th:value="${query.from}">
+        <input type="hidden" name="until" th:value="${query.until}">
+        <input type="hidden" name="variantToken" th:value="${variantToken}">
+        <input type="hidden" name="depth" th:value="${query.depth}">
+        <input type="hidden" name="top" th:value="${query.top}">
+        <input type="hidden" name="pathKey" th:value="${pathKey}">
+        <input type="hidden" name="allVariants" th:value="${allVariants}">
+        <div class="row g-3">
+            <div class="col-md-8">
+                <label for="goalState" class="form-label">기간 내 목표 이벤트</label>
+                <select id="goalState" name="goalState" class="form-select" th:disabled="${users.goalEventName == null}">
+                    <option value="ALL" th:selected="${goalState == 'ALL'}">전체</option>
+                    <option value="REACHED" th:selected="${goalState == 'REACHED'}">발생 확인</option>
+                    <option value="NOT_REACHED" th:selected="${goalState == 'NOT_REACHED'}">발생 확인 안 됨</option>
+                </select>
+                <div th:if="${users.goalEventName == null}" class="form-text">목표가 없어 발생 여부로 필터링할 수 없습니다.</div>
+            </div>
+            <div class="col-md-4"><label for="size" class="form-label">페이지 크기</label><input id="size" name="size" type="number" min="1" max="100" required class="form-control" th:value="${size}"></div>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3">경로 사용자 조회</button>
+    </form>
+    <p class="text-muted">첫·마지막 시각과 이벤트 수는 이 기간의 유효한 이벤트 전체에 대한 값입니다. 사용자 타임라인에는 노출과 집계 제외 로그도 표시하므로 행 수가 다를 수 있습니다.
+        늦게 수집된 이벤트로 경로 분류와 인원이 달라질 수 있어 페이지를 이동하거나 다시 조회하면 결과가 바뀔 수 있습니다.</p>
+    <div class="table-responsive">
+        <table class="table table-striped align-middle" id="patternUsers" style="min-width: 750px">
+            <thead><tr><th scope="col">사용자 ID</th><th scope="col">변형</th><th scope="col">첫 유효 이벤트 (UTC)</th><th scope="col">마지막 유효 이벤트 (UTC)</th><th scope="col">유효 이벤트</th><th scope="col">기간 내 목표</th></tr></thead>
+            <tbody>
+            <tr th:each="user : ${users.items}">
+                <td style="min-width: 10rem; max-width: 22rem"><a style="white-space: pre-wrap; overflow-wrap: anywhere" th:text="${user.userId}" th:href="@{/admin/experiments/{id}/journeys/user(id=${experiment.id},userId=${user.userId},variant=${user.variant},from=${query.from},until=${query.until},size=${size},listSource=${navigation.listSource},listFilterVariant=${navigation.listFilterVariant},listGoalState=${navigation.listGoalState},listSize=${navigation.listSize},listAfterUser=${navigation.listAfterUser},patternDepth=${navigation.patternDepth},patternTop=${navigation.patternTop},patternKey=${navigation.patternKey})}"></a></td>
+                <td style="white-space: pre-wrap; overflow-wrap: anywhere" th:text="${user.variant}"></td>
+                <td th:text="${user.firstAt}"></td><td th:text="${user.lastAt}"></td>
+                <td th:text="${user.events}"></td>
+                <td th:text="${users.goalEventName == null ? '목표 미설정' : (user.hasGoal ? '발생 확인' : '발생 확인 안 됨')}"></td>
+            </tr>
+            <tr th:if="${users.items.empty}"><td colspan="6" class="text-muted" th:text="${users.totalUsers == 0 ? '조회 기간에서 선택한 경로를 찾을 수 없습니다. 새로 수집된 이벤트로 경로가 달라졌을 수 있습니다. 경로 패턴으로 돌아가 다시 확인하세요.' : (users.matchedUsers == 0 ? '현재 목표 발생 필터에 맞는 사용자가 없습니다.' : '이 페이지에 표시할 사용자가 없습니다. 처음부터 다시 조회하세요.')}"></td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-secondary" th:href="@{/admin/experiments/{id}/journeys/patterns/users(id=${experiment.id},from=${query.from},until=${query.until},variant=${query.variant},depth=${query.depth},top=${query.top},pathKey=${pathKey},goalState=${goalState},size=${size},allVariants=${allVariants})}">처음부터 조회</a>
+        <a th:if="${users.nextUser != null}" class="btn btn-primary" th:href="@{/admin/experiments/{id}/journeys/patterns/users(id=${experiment.id},from=${query.from},until=${query.until},variant=${query.variant},depth=${query.depth},top=${query.top},pathKey=${pathKey},goalState=${goalState},size=${size},allVariants=${allVariants},afterUser=${users.nextUser})}">다음 사용자</a>
+    </div>
+</div>
+</th:block>
+</html>

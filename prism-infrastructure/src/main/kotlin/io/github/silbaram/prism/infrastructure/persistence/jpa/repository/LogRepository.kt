@@ -27,20 +27,37 @@ interface ImpressionLogRepository : JpaRepository<ImpressionLogEntity, Long> {
 // New events reference the exposure validated when the event was accepted, regardless of clock skew.
 // Historical rows have no reference; retain their conservative timestamp check.
 // EXISTS avoids multiplying conversions by repeated exposures and validates attribution identities.
-private const val ELIGIBLE_CONVERSION = """
-    c.experimentKey = :experimentKey AND EXISTS (
+internal const val ATTRIBUTED_CONVERSION = """
+    EXISTS (
         SELECT i.id FROM ImpressionLogEntity i
         WHERE i.experimentKey = c.experimentKey AND i.variant = c.variant
           AND i.userId = c.userId
           AND (i.id = c.impressionId OR (c.impressionId IS NULL AND i.timestamp <= c.timestamp)))
 """
+private const val ELIGIBLE_CONVERSION = "c.experimentKey = :experimentKey AND " + ATTRIBUTED_CONVERSION
 
 @Repository
 interface ConversionLogRepository : JpaRepository<ConversionLogEntity, Long> {
+    @Query("SELECT DISTINCT c.eventName FROM ConversionLogEntity c WHERE " + ATTRIBUTED_CONVERSION +
+        " AND c.eventName LIKE :pattern ESCAPE '!' ORDER BY c.eventName")
+    fun findEventNames(pattern: String, pageable: Pageable): List<String>
+
+    @Query("SELECT new io.github.silbaram.prism.infrastructure.persistence.jpa.repository.EventObservationRow(" +
+        "c.eventName, COUNT(c), COUNT(DISTINCT c.experimentKey), MAX(c.timestamp)) FROM ConversionLogEntity c WHERE " +
+        ATTRIBUTED_CONVERSION + " AND c.eventName IN :names GROUP BY c.eventName")
+    fun observeEventNames(names: Collection<String>): List<EventObservationRow>
+
+    @Query("SELECT new io.github.silbaram.prism.infrastructure.persistence.jpa.repository.EventMetricRow(" +
+        "c.eventName, c.variant, COUNT(DISTINCT c.userId), COUNT(c), MAX(c.timestamp)) FROM ConversionLogEntity c WHERE " +
+        ELIGIBLE_CONVERSION + " AND (:eventName IS NULL OR c.eventName = :eventName) GROUP BY c.eventName, c.variant ORDER BY c.eventName, c.variant")
+    fun eventMetrics(experimentKey: String, eventName: String?): List<EventMetricRow>
+
     // Read projections with a keyset cursor: never retain every user's event history in memory.
     @Query("SELECT new io.github.silbaram.prism.infrastructure.persistence.jpa.repository.FunnelEventRow(" +
         "c.id, c.userId, c.variant, c.eventName, c.timestamp) FROM ConversionLogEntity c WHERE " + ELIGIBLE_CONVERSION +
         " AND c.eventName IN :eventNames AND c.timestamp >= :from AND c.timestamp < :until" +
+        " AND (:userId IS NULL OR c.userId = :userId) AND (:variant IS NULL OR c.variant = :variant)" +
+        " AND (:afterUser IS NULL OR c.userId > :afterUser)" +
         " AND (:afterId = 0 OR c.userId > :afterUserId" +
         " OR (c.userId = :afterUserId AND c.variant > :afterVariant)" +
         " OR (c.userId = :afterUserId AND c.variant = :afterVariant AND c.timestamp > :afterTimestamp)" +
@@ -48,7 +65,21 @@ interface ConversionLogRepository : JpaRepository<ConversionLogEntity, Long> {
         " ORDER BY c.userId, c.variant, c.timestamp, c.id")
     fun findFunnelEvents(experimentKey: String, eventNames: List<String>, from: LocalDateTime, until: LocalDateTime,
                         afterUserId: String, afterVariant: String, afterTimestamp: LocalDateTime, afterId: Long,
-                        pageable: Pageable): List<FunnelEventRow>
+                        pageable: Pageable, userId: String? = null, variant: String? = null,
+                        afterUser: String? = null): List<FunnelEventRow>
+
+    @Query("SELECT new io.github.silbaram.prism.infrastructure.persistence.jpa.repository.JourneyPatternEventRow(" +
+        "c.id, c.userId, c.variant, c.eventName, c.timestamp, " +
+        "CASE WHEN :afterUser IS NULL OR c.userId > :afterUser THEN true ELSE false END) FROM ConversionLogEntity c WHERE " + ELIGIBLE_CONVERSION +
+        " AND c.timestamp >= :from AND c.timestamp < :until AND (:variant IS NULL OR c.variant = :variant)" +
+        " AND (:afterId = 0 OR c.userId > :afterUserId" +
+        " OR (c.userId = :afterUserId AND c.variant > :afterVariant)" +
+        " OR (c.userId = :afterUserId AND c.variant = :afterVariant AND c.timestamp > :afterTimestamp)" +
+        " OR (c.userId = :afterUserId AND c.variant = :afterVariant AND c.timestamp = :afterTimestamp AND c.id > :afterId))" +
+        " ORDER BY c.userId, c.variant, c.timestamp, c.id")
+    fun findJourneyPatternEvents(experimentKey: String, from: LocalDateTime, until: LocalDateTime, variant: String?,
+        afterUserId: String, afterVariant: String, afterTimestamp: LocalDateTime, afterId: Long,
+        pageable: Pageable, afterUser: String? = null): List<JourneyPatternEventRow>
 
     @Query("SELECT COUNT(c) FROM ConversionLogEntity c WHERE " + ELIGIBLE_CONVERSION +
         " AND c.userId = :userId AND c.variant = :variant AND c.eventName = :eventName AND c.timestamp >= :start AND c.timestamp < :end")
@@ -66,3 +97,10 @@ interface ConversionLogRepository : JpaRepository<ConversionLogEntity, Long> {
 
 data class FunnelEventRow(val id: Long, val userId: String, val variant: String, val eventName: String,
                           val timestamp: LocalDateTime)
+
+/** Preserve the database's exact identity ordering when classifying a complete history for a user page. */
+data class JourneyPatternEventRow(val id: Long, val userId: String, val variant: String, val eventName: String,
+    val timestamp: LocalDateTime, val afterCursor: Boolean)
+
+data class EventObservationRow(val eventName: String, val events: Long, val experiments: Long, val lastOccurredAt: LocalDateTime)
+data class EventMetricRow(val eventName: String, val variant: String, val users: Long, val events: Long, val lastOccurredAt: LocalDateTime)
