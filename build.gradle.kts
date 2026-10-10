@@ -5,7 +5,6 @@ import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.springframework.boot.gradle.tasks.bundling.BootJar
 
 val kotestVersion = "5.9.0"
 val mockkVersion = "1.13.11"
@@ -29,14 +28,14 @@ allprojects {
 }
 
 subprojects {
-    // 1. 모든 모듈 공통 플러그인
+    // JVM libraries do not inherit Spring compiler plugins or Spring Boot's published BOM.
     apply(plugin = "org.jetbrains.kotlin.jvm")
-    apply(plugin = "org.jetbrains.kotlin.plugin.spring") // @Transactional 등 open 처리
-    apply(plugin = "org.jetbrains.kotlin.plugin.jpa")    // Entity 기본생성자 처리
-    apply(plugin = "io.spring.dependency-management")    // 버전 관리만 가져옴
-
-    configure<DependencyManagementExtension> {
-        imports { mavenBom(SpringBootPlugin.BOM_COORDINATES) }
+    if (name in setOf("prism-api", "prism-admin", "prism-infrastructure", "prism-spring-boot-starter")) {
+        apply(plugin = "org.jetbrains.kotlin.plugin.spring")
+        apply(plugin = "io.spring.dependency-management")
+        configure<DependencyManagementExtension> {
+            imports { mavenBom(SpringBootPlugin.BOM_COORDINATES) }
+        }
     }
 
     // Dependency management populates the POM but does not export its BOM to Gradle module metadata.
@@ -53,12 +52,11 @@ subprojects {
     }
 
     dependencies {
-        "implementation"("com.fasterxml.jackson.module:jackson-module-kotlin")
-        "implementation"("org.jetbrains.kotlin:kotlin-reflect")
+        "testImplementation"(platform("org.junit:junit-bom:6.0.1"))
         "testImplementation"("io.kotest:kotest-runner-junit5:$kotestVersion")
         "testImplementation"("io.kotest:kotest-assertions-core:$kotestVersion")
         "testImplementation"("io.mockk:mockk:$mockkVersion")
-        "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
+        "testRuntimeOnly"("org.junit.platform:junit-platform-launcher:6.0.1")
     }
 
     // 3. 자바 및 코틀린 컴파일 옵션

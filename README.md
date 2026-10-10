@@ -1,6 +1,6 @@
 # Prism (A/B Testing System)
 
-Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 설정·이벤트 API로 구성된 A/B 테스트 플랫폼입니다. SDK는 동기화한 설정으로 로컬 SpEL 타기팅과 MurmurHash 분배를 실행하고, 노출·전환을 배치 전송합니다.
+Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 설정·이벤트 API로 구성된 A/B 테스트 플랫폼입니다. 기본 SDK는 Spring 없이 동기화한 설정으로 데이터 규칙 타기팅과 MurmurHash 분배를 실행하고 노출·전환을 배치 전송합니다. 기존 SpEL 규칙은 선택적 호환 모듈이 처리합니다.
 
 ## 주요 특징
 - **무상태 트래픽 분배**: 고성능 API로 사용자별 변형(variant) 할당
@@ -9,7 +9,8 @@ Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 설정·이벤�
 - **Spring 통합**: `@PrismExperiment` 어노테이션과 안전한 전환 추적 래퍼 제공
 
 ## 프로젝트 구조
-- **prism-core**: MurmurHash 기반 트래픽 분배 및 SpEL 타기팅 유틸리티
+- **prism-core**: 프레임워크 독립 배정 엔진, 데이터 규칙·타기팅 평가 인터페이스
+- **prism-targeting-spel**: 기존 SpEL 규칙용 선택적 호환 모듈
 - **prism-common**: 공용 DTO 및 상수 모음 (`ResponseCode` 등)
 - **prism-api**: 트래픽 분배/로그 수집 API 서비스
 - **prism-admin**: 실험 생성·목표 이벤트·통계 조회용 Admin 서비스
@@ -109,6 +110,8 @@ DB 변경 후 API/Admin과 Kafka worker를 함께 갱신합니다. SDK/스타터
 Admin은 `PRISM_ADMIN_USERNAME`과 BCrypt `PRISM_ADMIN_PASSWORD_HASH`가 필요합니다. 조회 전용 계정은 `PRISM_ADMIN_VIEWER_USERNAME`과 `PRISM_ADMIN_VIEWER_PASSWORD_HASH`를 함께 지정하며 관리자와 다른 이름을 사용합니다. 계정 변경 후 Admin을 재시작합니다. 외부 운영에는 HTTPS와 `SERVER_SERVLET_SESSION_COOKIE_SECURE=true`를 설정합니다.
 
 ## SDK 운영 계약
+
+기본 SDK·코어는 Spring 실행 의존성을 가져오지 않습니다. Spring 스타터와 API/Admin에는 기존 규칙을 유지하는 SpEL 호환 모듈이 포함됩니다. 일반 SDK에서 SpEL을 사용한다면 `prism-targeting-spel`을 추가하세요. 데이터 규칙 형식·평가기 주입·거절 진단·업그레이드는 [프레임워크 독립 SDK 안내](docs/framework-independent-sdk.md)를 참고하세요.
 
 기본 모드는 LOCAL입니다. `evaluate()`로 화면을 준비하고 실제 경험 제공 시 `recordExposure()`를 호출합니다. `assign()`은 평가와 실제 노출 등록을 함께 수행합니다. 전환은 `track(outcome, eventName)`으로 원래 노출 참조를 전달하며, 전환 시점에 새 노출을 만들지 않습니다. LOCAL 전환의 `true`는 메모리 큐 등록, REMOTE의 `true`는 서버 수락을 뜻합니다. 전송 결과는 `flush()`와 거부 로그로 확인합니다.
 

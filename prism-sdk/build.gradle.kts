@@ -14,19 +14,21 @@ plugins {
 dependencies {
     // SDK를 사용하는 쪽에서도 이 클래스를 알 수 있도록 API 의존성으로 노출해야 합니다.
     api(project(":prism-common"))
-    implementation(project(":prism-core"))
+    api(project(":prism-core"))
 
     // JSON 직렬화 등 런타임 의존성
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.20.1")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:2.2.21")
 
     // 로깅 의존성
-    implementation("org.slf4j:slf4j-api")
+    implementation("org.slf4j:slf4j-api:2.0.17")
 
-    implementation("com.github.ben-manes.caffeine:caffeine")
+    implementation("com.github.ben-manes.caffeine:caffeine:3.2.3")
 
     // 테스트 의존성
     testImplementation(kotlin("test-junit5"))
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:6.0.1")
+    testRuntimeOnly(project(":prism-targeting-spel"))
     testImplementation("com.squareup.okhttp3:mockwebserver:4.11.0")
 }
 

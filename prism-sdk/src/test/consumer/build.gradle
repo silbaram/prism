@@ -22,9 +22,30 @@ repositories {
 
 dependencies {
     implementation "io.github.silbaram.prism:prism-sdk:${providers.gradleProperty('prismVersion').get()}"
+    if (providers.gradleProperty('targetingCompatibility').get() == 'spel') {
+        runtimeOnly "io.github.silbaram.prism:prism-targeting-spel:${providers.gradleProperty('prismVersion').get()}"
+    }
 }
 
 // Recheck freshly published SNAPSHOT artifacts on every verification run.
 configurations.configureEach { resolutionStrategy.cacheChangingModulesFor 0, 'seconds' }
 
 application { mainClass = 'SdkConsumer' }
+
+tasks.register('verifyRuntimeBoundary') {
+    doLast {
+        def springComponents = configurations.runtimeClasspath.incoming.resolutionResult.allComponents.findAll {
+            it.moduleVersion?.group?.startsWith('org.springframework')
+        }
+        if (providers.gradleProperty('targetingCompatibility').get() == 'spel') {
+            assert springComponents.any { it.moduleVersion.name == 'spring-expression' }
+        } else {
+            assert springComponents.empty : "Default SDK imported Spring: ${springComponents}"
+        }
+    }
+}
+
+tasks.named('run') {
+    dependsOn 'verifyRuntimeBoundary'
+    systemProperty 'prism.consumer.legacy', providers.gradleProperty('targetingCompatibility').get() == 'spel'
+}

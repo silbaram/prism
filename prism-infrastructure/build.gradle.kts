@@ -1,5 +1,6 @@
 plugins {
     id("org.springframework.boot")
+    kotlin("plugin.jpa")
     `java-library`
     `maven-publish` // Maven 저장소 배포 플러그인
 }
@@ -11,6 +12,7 @@ dependencies {
     api("org.springframework.boot:spring-boot-autoconfigure")
 
     api("com.mysql:mysql-connector-j")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 }
 
 tasks.bootJar {

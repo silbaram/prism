@@ -166,7 +166,8 @@
                         </button>
                     </div>
                     <div class="form-text mb-3">
-                        SpEL 표현식으로 타겟팅 조건을 설정합니다. (예: age >= 20, country == 'KR')
+                        기본 SDK는 데이터 규칙을 사용합니다. 예: <code>prism:v1:{"attribute":"country","op":"eq","value":"KR"}</code>
+                        <br>Spring 스타터는 기존 SpEL 조건도 지원합니다. (예: age >= 20, country == 'KR')
                         <br>모든 규칙은 AND 조건으로 평가됩니다.
                     </div>
 
@@ -175,7 +176,7 @@
                         <div class="rule-item card p-3 mb-2" th:each="rule : ${experiment.targetingRules}">
                             <div class="row g-2">
                                 <div class="col-md-11">
-                                    <label class="form-label small">조건 (SpEL Expression)</label>
+                                    <label class="form-label small">조건 (데이터 규칙 또는 SpEL)</label>
                                     <input type="text" name="targetingRules[].expression" class="form-control"
                                            th:value="${rule.expression}" th:readonly="${locked}"
                                            placeholder="예: age >= 20 && country == 'KR'">
@@ -293,7 +294,7 @@
             newRule.innerHTML = `
                 <div class="row g-2">
                     <div class="col-md-11">
-                        <label class="form-label small">조건 (SpEL Expression)</label>
+                        <label class="form-label small">조건 (데이터 규칙 또는 SpEL)</label>
                         <input type="text" name="targetingRules[].expression" class="form-control"
                                placeholder="예: age >= 20 && country == 'KR'">
                     </div>

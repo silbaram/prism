@@ -1,6 +1,8 @@
 package io.github.silbaram.prism.sdk
 
 import java.time.Duration
+import io.github.silbaram.prism.core.targeting.RuleEvaluator
+import io.github.silbaram.prism.core.targeting.TargetingEvaluator
 
 enum class EvaluationMode { LOCAL, REMOTE }
 
@@ -18,7 +20,8 @@ data class PrismClientOptions @JvmOverloads constructor(
     val apiKey: String? = null,
     val stickyAssignmentStore: StickyAssignmentStore = InMemoryStickyAssignmentStore(),
     val configStreaming: Boolean = false,
-    val flushTimeout: Duration = Duration.ofSeconds(5)
+    val flushTimeout: Duration = Duration.ofSeconds(5),
+    val targetingEvaluator: TargetingEvaluator = RuleEvaluator
 ) {
     init {
         require(configSyncInterval.toMillis() > 0 && eventFlushInterval.toMillis() > 0)

@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    api("com.fasterxml.jackson.core:jackson-annotations")
+    api("com.fasterxml.jackson.core:jackson-annotations:2.20")
 }
 
 // 소스 JAR 포함

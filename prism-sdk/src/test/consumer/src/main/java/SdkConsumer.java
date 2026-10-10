@@ -16,9 +16,18 @@ import java.util.StringJoiner;
 import java.util.regex.Pattern;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Independently resolves core + SpEL through both POM and Gradle module metadata. */
+/** Verifies Spring-free and optional SpEL configurations through POM and Gradle metadata. */
 public class SdkConsumer {
     public static void main(String[] args) throws Exception {
+        boolean legacy = Boolean.getBoolean("prism.consumer.legacy");
+        String targeting = legacy ? "age >= 20 && country == 'KR'" :
+            "prism:v1:{\"all\":[{\"attribute\":\"age\",\"op\":\"gte\",\"value\":20},{\"attribute\":\"country\",\"op\":\"eq\",\"value\":\"KR\"}]}";
+        if (!legacy) {
+            try {
+                Class.forName("org.springframework.expression.Expression");
+                throw new AssertionError("Spring must not be present in the default SDK consumer");
+            } catch (ClassNotFoundException expected) { }
+        }
         // Existing Java consumers must retain the pre-extension ten-argument constructor.
         var legacyEvent = new ClientEvent("10000000-0000-0000-0000-000000000001", "exposure", "u", "checkout", "A",
             "2026-09-14T00:00:00Z", "a".repeat(64), null, null, null);
@@ -37,10 +46,10 @@ public class SdkConsumer {
             {"version":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
              "holdout":{"key":"permanent","basisPoints":0,"configured":true}, "revision":1,
              "experiments":[{"key":"checkout","status":"ACTIVE","variants":[{"name":"A","weight":100}],
-             "targetingRules":["age >= 20 && country == 'KR'"], "trafficAllocation":100, "stickyBucketing":true, "layer":{"key":"checkout","start":0,"end":10000}},
+             "targetingRules":["%s"], "trafficAllocation":100, "stickyBucketing":true, "layer":{"key":"checkout","start":0,"end":10000}},
              {"key":"disabled","status":"ACTIVE","variants":[{"name":"A","weight":100}],"trafficAllocation":0},
              {"key":"expired","status":"ACTIVE","variants":[{"name":"A","weight":100}],"endsAt":"2020-01-01T00:00:00Z"}]}
-            """);
+            """.formatted(targeting.replace("\\", "\\\\").replace("\"", "\\\"")));
         });
         server.createContext("/v1/events", exchange -> {
             if (!apiKey.equals(exchange.getRequestHeaders().getFirst("X-Prism-Api-Key"))) {
@@ -98,7 +107,7 @@ public class SdkConsumer {
                 try (var files = Files.list(directory)) { for (var file : files.toList()) Files.delete(file); }
                 Files.delete(directory);
             }
-            System.out.println("Published SDK consumer passed: local evaluation, SpEL and batch events");
+            System.out.println("Published SDK consumer passed: " + (legacy ? "SpEL compatibility" : "no Spring, data rules") + ", local evaluation and batch events");
         } finally {
             server.stop(0);
         }

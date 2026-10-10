@@ -40,6 +40,7 @@ tasks.register<Test>("mysqlTest") {
 
 dependencies {
     implementation(project(":prism-core"))
+    implementation(project(":prism-targeting-spel"))
     implementation(project(":prism-common"))
     implementation(project(":prism-infrastructure"))
 
@@ -47,6 +48,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("com.github.ben-manes.caffeine:caffeine")
     implementation("org.apache.kafka:kafka-clients")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(project(":prism-sdk"))

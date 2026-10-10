@@ -10,11 +10,43 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import io.github.silbaram.prism.core.targeting.TargetingEvaluator
+import io.github.silbaram.prism.core.targeting.TargetingRule
+import io.github.silbaram.prism.core.targeting.UserContext
+import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
 
 class PrismAutoConfigurationTest {
 
     private val contextRunner = ApplicationContextRunner()
         .withConfiguration(AutoConfigurations.of(PrismAutoConfiguration::class.java))
+
+    @Test
+    fun `custom targeting bean replaces the default evaluator in the SDK`() {
+        val evaluator = object : TargetingEvaluator {
+            override fun validateSyntax(condition: String) { require(condition == "custom-rule") }
+            override fun evaluate(rule: TargetingRule, context: UserContext) = context.attributes["country"] == "KR"
+        }
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/config") { exchange ->
+            val body = """{"version":"${"a".repeat(64)}","experiments":[{"key":"custom","status":"ACTIVE","variants":[{"name":"A","weight":100}],"targetingRules":["custom-rule"]}]}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+            exchange.close()
+        }
+        server.start()
+        try {
+            contextRunner.withBean(TargetingEvaluator::class.java, { evaluator })
+                .withPropertyValues("prism.client.url=http://127.0.0.1:${server.address.port}")
+                .run { context ->
+                    assertThat(context).hasNotFailed().hasSingleBean(TargetingEvaluator::class.java)
+                    assertThat(context.getBean(TargetingEvaluator::class.java)).isSameAs(evaluator)
+                    val client = context.getBean(PrismClient::class.java)
+                    assertThat(client.evaluate("eligible", "custom", mapOf("country" to "KR")).variant).isEqualTo("A")
+                    assertThat(client.evaluate("excluded", "custom", mapOf("country" to "US")).variant).isNull()
+                }
+        } finally { server.stop(0) }
+    }
 
     @Test
     fun `should create PrismExperimentClient and related beans when url is configured`() {

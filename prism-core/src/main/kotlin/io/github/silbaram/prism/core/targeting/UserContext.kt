@@ -23,7 +23,7 @@ package io.github.silbaram.prism.core.targeting
  * ))
  *
  * // 타겟팅 규칙 평가
- * val rule = TargetingRule("age >= 18 && country == 'KR'")
+ * val rule = TargetingRule("""prism:v1:{"attribute":"country","op":"eq","value":"KR"}""")
  * val isTargeted = RuleEvaluator.evaluate(rule, context)
  * ```
  *
