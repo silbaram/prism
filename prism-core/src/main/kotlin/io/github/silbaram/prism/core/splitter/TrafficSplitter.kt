@@ -5,6 +5,7 @@ import io.github.silbaram.prism.core.model.Experiment
 import io.github.silbaram.prism.core.model.Variant
 import io.github.silbaram.prism.core.targeting.RuleEvaluator
 import io.github.silbaram.prism.core.targeting.UserContext
+import io.github.silbaram.prism.core.targeting.TargetingEvaluator
 import kotlin.math.abs
 
 /**
@@ -69,11 +70,13 @@ object TrafficSplitter {
      *
      * @throws IllegalArgumentException 실험에 변형이 없는 경우
      */
+    @JvmOverloads
     fun assign(
         experiment: Experiment,
         userId: String,
         context: UserContext = UserContext(emptyMap()),
-        now: java.time.Instant = java.time.Instant.now()
+        now: java.time.Instant = java.time.Instant.now(),
+        targetingEvaluator: TargetingEvaluator = RuleEvaluator
     ): Variant? {
         require(experiment.variants.isNotEmpty()) { "Experiment must have at least one variant" }
         if (experiment.startsAt?.let { now < it } == true || experiment.endsAt?.let { now >= it } == true) return null
@@ -86,7 +89,7 @@ object TrafficSplitter {
         // 실험에 타겟팅 규칙이 있다면, 모든 규칙을 만족하는지 확인
         if (experiment.targetingRules.isNotEmpty()) {
             val isTargeted = experiment.targetingRules.all { rule ->
-                RuleEvaluator.evaluate(rule, context)
+                targetingEvaluator.evaluate(rule, context)
             }
             if (!isTargeted) {
                 return null // 타겟팅 대상이 아님

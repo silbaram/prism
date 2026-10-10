@@ -24,6 +24,7 @@ tasks.getByName<Jar>("jar") {
 dependencies {
     // Prism SDK를 api로 노출 (Starter 내부 래퍼가 사용)
     api(project(":prism-sdk"))
+    runtimeOnly(project(":prism-targeting-spel"))
 
     // Spring AOP 지원 (@PrismExperiment 어노테이션 처리)
     // api로 선언하여 AspectJ 의존성이 외부 프로젝트로 전이되도록 함

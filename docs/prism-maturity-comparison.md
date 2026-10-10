@@ -152,9 +152,9 @@ Spring 적용 흐름이 안정된 후 여러 팀·플랫폼과 비개발자로 �
 
 ## 7. Spring 의존성을 줄이는 개발 방향
 
-다음 내용은 현재 코드 확인에 따른 구조 개선안이며 아직 구현한 변경 사항은 아니다.
+다음 내용은 리팩토링 전 코드 확인에 따른 구조 개선안이다. 이후 `refactor/framework-independent-sdk` 작업에서는 코어·SDK의 Spring 실행 의존성을 제거하고, 데이터 규칙과 평가기 주입, 선택적 SpEL 호환 모듈을 구현한다. 구체적인 적용·호환 계약은 [프레임워크 독립 SDK 안내](framework-independent-sdk.md)에 기록한다. 아래 사전 평가와 목표 구조를 구분한다.
 
-### 현재 의존성을 정확히 구분하기
+### 리팩토링 전 의존성
 
 SDK는 이미 Spring 애플리케이션 컨텍스트 없이 사용할 수 있다. HTTP 통신도 Spring WebClient가 아닌 JDK의 `java.net.http.HttpClient`를 사용한다. 독립 Java 소비자 검증도 이 방식으로 실행된다.
 

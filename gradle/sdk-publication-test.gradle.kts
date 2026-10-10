@@ -5,7 +5,7 @@ val verificationRepository = layout.buildDirectory.dir("publication-test/reposit
 val cleanVerificationRepository = tasks.register<Delete>("cleanSdkVerificationRepository") {
     delete(verificationRepository)
 }
-val producers = listOf(project(":prism-common"), project(":prism-core"), project(":prism-sdk"))
+val producers = listOf(project(":prism-common"), project(":prism-core"), project(":prism-targeting-spel"), project(":prism-sdk"))
 val publishTaskName = "publishMavenPublicationToSdkVerificationRepository"
 producers.forEach { producer ->
     producer.plugins.withId("maven-publish") {
@@ -21,29 +21,30 @@ producers.forEach { producer ->
     }
 }
 
-val consumerChecks = listOf("Module", "Pom").map { format ->
-    val consumerDirectory = layout.buildDirectory.dir("publication-test/consumer-${format.lowercase()}")
-    val prepareConsumer = tasks.register<Sync>("prepareSdk${format}Consumer") {
+val consumerChecks = listOf("", "Spel").flatMap { compatibility -> listOf("Module", "Pom").map { format ->
+    val consumerDirectory = layout.buildDirectory.dir("publication-test/consumer-${compatibility.lowercase()}-${format.lowercase()}")
+    val prepareConsumer = tasks.register<Sync>("prepareSdk${compatibility}${format}Consumer") {
         from("src/test/consumer")
         into(consumerDirectory)
     }
-    tasks.register<GradleBuild>("verifySdk${format}Publication") {
+    tasks.register<GradleBuild>("verifySdk${compatibility}${format}Publication") {
         group = "verification"
-        description = "Compiles and runs a standalone Java SDK consumer using $format metadata"
+        description = "Runs a standalone Java SDK consumer using $format metadata (${compatibility.ifEmpty { "no Spring" }})"
         dependsOn(prepareConsumer)
         dependsOn(producers.map { "${it.path}:$publishTaskName" })
         dir = consumerDirectory.get().asFile
-        buildName = "sdk-${format.lowercase()}-consumer"
+        buildName = "sdk-${compatibility.lowercase()}-${format.lowercase()}-consumer"
         tasks = listOf("run")
         startParameter.projectProperties = mapOf(
             "prismVersion" to project.version.toString(),
             "prismRepository" to verificationRepository.get().asFile.toURI().toString(),
-            "metadataFormat" to format.lowercase()
+            "metadataFormat" to format.lowercase(),
+            "targetingCompatibility" to compatibility.lowercase()
         )
         startParameter.isOffline = gradle.startParameter.isOffline
         startParameter.maxWorkerCount = gradle.startParameter.maxWorkerCount
     }
-}
+} }
 
 val verifySdkPublication = tasks.register("verifySdkPublication") {
     group = "verification"

@@ -14,9 +14,11 @@ tasks.getByName<BootJar>("bootJar") {
 
 dependencies {
     implementation(project(":prism-core"))
+    implementation(project(":prism-targeting-spel"))
     implementation(project(":prism-infrastructure"))
     implementation("org.apache.commons:commons-math3:3.6.1")
     implementation("com.github.ben-manes.caffeine:caffeine")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-security")

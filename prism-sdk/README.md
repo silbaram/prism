@@ -1,8 +1,8 @@
 # Prism SDK
 
-JDK 21 이상에서 사용하는 Java/Kotlin SDK입니다. 기본 `LOCAL` 모드는 활성 실험 설정을 받아 `prism-core`로 할당과 SpEL 타기팅을 평가합니다. 첫 설정 수신 이후 `assign()`은 HTTP 요청 없이 동작하며, 노출·전환 이벤트는 메모리 큐에 넣어 배치 전송합니다.
+JDK 21 이상에서 사용하는 Java/Kotlin SDK입니다. 기본 `LOCAL` 모드는 활성 실험 설정을 받아 `prism-core`로 할당과 데이터 규칙 타기팅을 평가합니다. 첫 설정 수신 이후 `assign()`은 HTTP 요청 없이 동작하며, 노출·전환 이벤트는 메모리 큐에 넣어 배치 전송합니다.
 
-Spring Boot 애플리케이션 컨텍스트 없이 사용할 수 있습니다. SDK는 core와 `spring-expression`을 전이 의존하며, Gradle 모듈 메타데이터와 Maven POM 모두 해석된 버전을 제공합니다.
+기본 SDK는 Spring 실행 라이브러리·Spring Boot BOM을 전이 의존하지 않습니다. 기존 SpEL 규칙은 `runtimeOnly("io.github.silbaram.prism:prism-targeting-spel:0.0.1-SNAPSHOT")`를 추가하면 유지됩니다. Spring 스타터에는 이 모듈이 포함됩니다. Gradle 모듈 메타데이터와 Maven POM 모두 해석된 버전을 제공합니다. [규칙 형식·평가기 확장·업그레이드](../docs/framework-independent-sdk.md)를 확인하세요.
 
 ## 시작하기
 
@@ -141,7 +141,7 @@ Admin CVR은 **목표 이벤트 발생 고유 사용자 / 노출 고유 사용�
 ./gradlew :prism-sdk:verifySdkPublication
 ```
 
-`verifySdkPublication`은 common·core·SDK를 빌드 디렉터리의 임시 Maven 저장소에 게시하고, 독립 Java 프로젝트가 Gradle 모듈 메타데이터와 POM으로 각각 로컬 할당·SpEL 타기팅·이벤트 배치를 실행하는지 검증합니다. `check`와 `build`에 포함됩니다.
+`verifySdkPublication`은 common·core·SDK·SpEL 호환 모듈을 빌드 디렉터리의 임시 Maven 저장소에 게시합니다. 독립 Java 프로젝트가 기본 SDK와 SpEL 호환 구성을 각각 Gradle 모듈 메타데이터·POM으로 소비해 배정·타기팅·이벤트 배치를 실행합니다. 기본 구성에 Spring 런타임 의존성이 없는지도 검사합니다. `check`와 `build`에 포함됩니다.
 
 Phase 3 서버는 모든 HTTP 경로에 API 키를 요구합니다. `PrismClientOptions.apiKey` 또는 Java의 `new PrismClient(url, apiKey)`를 사용하세요. 참여 비율과 UTC 기간은 동기화된 설정으로 로컬에서 검사하며, 알고 있는 종료 시각 이후에는 설정 서버 장애 중에도 할당하지 않습니다. 운영 기능 사용 전 모든 SDK를 갱신해야 합니다. [인증 정책](../README.md#인증)을 참고하세요.
 

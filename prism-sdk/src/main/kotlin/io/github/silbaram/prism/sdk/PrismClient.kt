@@ -111,6 +111,8 @@ class PrismClient @JvmOverloads constructor(
     fun trackPopulationConversion(userId: String, eventName: String): Boolean = local?.trackPopulationConversion(userId, eventName) ?: false
     fun flush(): Boolean = local?.flush() ?: true
     val pendingEventCount: Int get() = local?.pendingEventCount ?: 0
+    /** Rejected targeting definitions by experiment key; excludes rule text and user attributes. */
+    val targetingConfigurationErrors: Map<String, String> get() = local?.targetingConfigurationErrors ?: emptyMap()
     /** Lifetime user/experiment dedup entries, retained after acknowledgement; zero in REMOTE mode. */
     val exposureDedupCount: Int get() = local?.exposureDedupCount ?: 0
     /** Separately bounded population-user dedup entries; zero in REMOTE mode. */

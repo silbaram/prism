@@ -2,6 +2,8 @@
 
 Spring Boot 4 / JDK 21 기반의 할당, 전략 선택, 전환 추적 통합입니다.
 
+코어·SDK는 Spring 실행 의존성과 분리돼 있으며 스타터가 자동 설정·AOP·트랜잭션 연동을 담당합니다. 기존 SpEL 호환 모듈은 스타터에 포함됩니다. `TargetingEvaluator` Bean을 제공하면 LOCAL SDK의 평가기를 교체할 수 있습니다. [기본 SDK·데이터 규칙·업그레이드](../docs/framework-independent-sdk.md)를 참고하세요.
+
 ## 설정
 
 ```kotlin

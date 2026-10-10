@@ -3,6 +3,8 @@ package io.github.silbaram.prism.starter
 import io.github.silbaram.prism.sdk.PrismClient
 import io.github.silbaram.prism.sdk.PrismClientOptions
 import io.github.silbaram.prism.sdk.PrismExperimentClient
+import io.github.silbaram.prism.core.targeting.RuleEvaluator
+import io.github.silbaram.prism.core.targeting.TargetingEvaluator
 import io.github.silbaram.prism.starter.aop.PrismExperimentAspect
 import io.github.silbaram.prism.starter.aop.PrismTrackConversionAspect
 import io.github.silbaram.prism.starter.aop.PrismTransactionLifecyclePostProcessor
@@ -36,7 +38,7 @@ class PrismAutoConfiguration(
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "prism.client", name = ["url"])
-    fun prismClient(): PrismClient {
+    fun prismClient(targetingEvaluator: TargetingEvaluator): PrismClient {
         return PrismClient(
             baseUrl = properties.url,
             timeout = properties.timeout,
@@ -53,12 +55,17 @@ class PrismAutoConfiguration(
                 exposureDedupCapacity = properties.exposureDedupCapacity,
                 apiKey = properties.apiKey,
                 configStreaming = properties.configStreaming,
+                targetingEvaluator = targetingEvaluator,
                 stickyAssignmentStore = properties.stickyAssignmentsDirectory?.let {
                     io.github.silbaram.prism.sdk.FileStickyAssignmentStore(java.nio.file.Path.of(it))
                 } ?: io.github.silbaram.prism.sdk.InMemoryStickyAssignmentStore()
             )
         )
     }
+
+    @Bean
+    @ConditionalOnMissingBean(TargetingEvaluator::class)
+    fun prismTargetingEvaluator(): TargetingEvaluator = RuleEvaluator
 
     @Bean
     @ConditionalOnBean(PrismClient::class)

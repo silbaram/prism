@@ -32,7 +32,8 @@ internal class LocalEvaluationClient(
     private val http: HttpClient
 ) : AutoCloseable {
     private data class Snapshot(val version: String, val etag: String?, val experiments: Map<String, Experiment>,
-                                val holdout: io.github.silbaram.prism.core.model.HoldoutPolicy, val revision: Long, val holdoutConfigured: Boolean)
+                                val holdout: io.github.silbaram.prism.core.model.HoldoutPolicy, val revision: Long, val holdoutConfigured: Boolean,
+                                val targetingErrors: Map<String, String>)
     private data class Key(val userId: String, val experimentKey: String)
     private data class CachedExposure(val event: ClientEvent, val cachedAt: Long = System.nanoTime())
     private sealed interface ExposureAdmission {
@@ -43,6 +44,8 @@ internal class LocalEvaluationClient(
     private val mapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
     private val logger = LoggerFactory.getLogger(javaClass)
     private val snapshot = AtomicReference<Snapshot?>()
+    val targetingConfigurationErrors: Map<String, String> get() = snapshot.get()?.targetingErrors?.toMap() ?: emptyMap()
+    private fun hasTargetingError(experimentKey: String) = snapshot.get()?.targetingErrors?.containsKey(experimentKey) == true
     private val initialized = CountDownLatch(1)
     private val closed = AtomicBoolean()
     private val shutdownCompleted = CountDownLatch(1)
@@ -124,13 +127,22 @@ internal class LocalEvaluationClient(
                 definition.layer?.let { io.github.silbaram.prism.core.model.LayerAllocation(it.key, it.start, it.end) },
                 holdout, definition.stickyBucketing)
         }
+        val targetingErrors = definitions.values.mapNotNull { experiment ->
+            try {
+                experiment.targetingRules.forEach { options.targetingEvaluator.validateSyntax(it.condition) }
+                null
+            } catch (exception: IllegalArgumentException) {
+                logger.warn("Targeting configuration rejected: experimentKey={}, reason={}", experiment.key, exception.javaClass.simpleName)
+                experiment.key to exception.javaClass.simpleName
+            }
+        }.toMap()
         // Replace only after the entire response validates, including an empty active set.
         definitions.values.filter { it.layer != null }.groupBy { it.layer!!.key }.values.forEach { layer ->
             val ranges = layer.map { it.layer!! }.sortedBy { it.start }
             require(ranges.zipWithNext().all { (left, right) -> left.end <= right.start }) { "Overlapping layer allocations" }
         }
         supportedDefinitions.replaceAll { key, previous -> definitions[key] ?: previous }
-        snapshot.set(Snapshot(config.version, etag, definitions, holdout, config.revision, config.holdout.configured))
+        snapshot.set(Snapshot(config.version, etag, definitions, holdout, config.revision, config.holdout.configured, targetingErrors))
         initialized.countDown()
         true
     }
@@ -144,6 +156,8 @@ internal class LocalEvaluationClient(
         }
         if (closed.get()) return failed(userId, experimentKey)
         val state = snapshot.get() ?: return failed(userId, experimentKey)
+        if (experimentKey in state.targetingErrors)
+            return failed(userId, experimentKey, SdkResponseCode.TARGETING_CONFIGURATION_REJECTED)
         val experiment = state.experiments[experimentKey]
         if (supportedVariants != null && experiment != null) {
             supportedDefinitions.putIfAbsent(experimentKey, experiment)
@@ -151,7 +165,7 @@ internal class LocalEvaluationClient(
                 return AssignmentResponse(userId, experimentKey, null, SdkResponseCode.CLIENT_ERROR.code, "Experiment variants are not supported")
         }
         val variant = try { experiment?.let {
-            val proposed = TrafficSplitter.assign(it, userId, UserContext(attributes)) ?: return@let null
+            val proposed = TrafficSplitter.assign(it, userId, UserContext(attributes), targetingEvaluator = options.targetingEvaluator) ?: return@let null
             if (!it.stickyBucketing) proposed else {
                 val stored = options.stickyAssignmentStore.getOrPut(userId, experimentKey, proposed.name)
                 it.variants.firstOrNull { candidate -> candidate.name == stored }
@@ -217,6 +231,7 @@ internal class LocalEvaluationClient(
     }
 
     private fun enqueueExposure(result: AssignmentResponse, analysis: ExposureAnalysisContext? = null): ExposureAdmission {
+        if (hasTargetingError(result.experimentKey)) return ExposureAdmission.Unavailable
         try { analysis?.validate() } catch (_: IllegalArgumentException) { return ExposureAdmission.Unavailable }
         val variant = result.variant ?: return ExposureAdmission.Unavailable
         val version = result.configVersion ?: return ExposureAdmission.Unavailable
@@ -304,6 +319,7 @@ internal class LocalEvaluationClient(
     /** true means queued locally. Server acknowledgement is reported by flush(). */
     fun trackConversion(userId: String, experimentKey: String, eventName: String, cacheTtl: Duration,
                         supportedVariants: Set<String>? = null): Boolean {
+        if (hasTargetingError(experimentKey)) return false
         if (!validIdentity(eventName)) return false
         val queued = withExposure(userId, experimentKey, cacheTtl) { exposure ->
             if (supportedVariants != null && exposure.variant !in supportedVariants) false
@@ -315,6 +331,7 @@ internal class LocalEvaluationClient(
 
     /** An explicit reference can cross process boundaries even before the exposure batch arrives. */
     fun trackConversion(assignment: AssignmentResponse, eventName: String, supportedVariants: Set<String>? = null): Boolean {
+        if (hasTargetingError(assignment.experimentKey)) return false
         val id = assignment.exposureEventId ?: return false
         val version = assignment.configVersion ?: return false
         val variant = assignment.variant ?: return false
@@ -450,6 +467,9 @@ internal class LocalEvaluationClient(
     private fun validIdentity(value: String) = value.isNotBlank() && value.length <= 255
     private fun failed(userId: String, experimentKey: String, code: SdkResponseCode = SdkResponseCode.CLIENT_ERROR) =
         AssignmentResponse(userId, experimentKey, null, code.code,
-            if (code == SdkResponseCode.EXPOSURE_DEDUP_CAPACITY_REACHED) "Exposure deduplication capacity reached"
-            else "Local evaluation unavailable")
+            when (code) {
+                SdkResponseCode.EXPOSURE_DEDUP_CAPACITY_REACHED -> "Exposure deduplication capacity reached"
+                SdkResponseCode.TARGETING_CONFIGURATION_REJECTED -> "Targeting configuration unavailable or invalid"
+                else -> "Local evaluation unavailable"
+            })
 }

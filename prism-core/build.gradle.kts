@@ -4,7 +4,9 @@ plugins {
 }
 
 dependencies {
-    implementation("org.springframework:spring-expression")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.20.1")
+    testImplementation(kotlin("test-junit5"))
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:6.0.1")
 }
 
 // 소스 JAR 포함
