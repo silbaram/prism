@@ -1,14 +1,18 @@
 package io.github.silbaram.prism.api.conversion.application.port.`in`
 
+import io.github.silbaram.prism.common.rest.dto.assign.validateSupportedVariants
+
 interface TrackConversionUseCase {
     fun trackConversion(command: TrackConversionCommand): TrackConversionResult
 }
 
-data class TrackConversionCommand(val userId: String, val experimentKey: String, val eventName: String) {
+data class TrackConversionCommand(val userId: String, val experimentKey: String, val eventName: String,
+                                 val supportedVariants: Set<String>? = null) {
     init {
         require(userId.isNotBlank() && userId.length <= 255) { "userId must contain 1–255 characters" }
         require(experimentKey.isNotBlank() && experimentKey.length <= 255) { "experimentKey must contain 1–255 characters" }
         require(eventName.isNotBlank() && eventName.length <= 255) { "eventName must contain 1–255 characters" }
+        supportedVariants?.let(::validateSupportedVariants)
     }
 }
 

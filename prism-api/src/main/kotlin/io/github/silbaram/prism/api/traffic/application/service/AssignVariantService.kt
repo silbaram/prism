@@ -57,11 +57,19 @@ class AssignVariantService(
                 experimentKey = command.experimentKey
             )
 
+        // Reject the whole design before sticky writes or exposure registration. Keeping only
+        // supported arms would collect a selected, non-random subset of the experiment.
+        if (command.supportedVariants?.let { supported ->
+                experiment.variants.any { it.weight > 0 && it.name !in supported }
+            } == true) return AssignVariantResult.experimentNotFound(command.userId, command.experimentKey)
+
         // 2단계: 변형 할당 (Domain Layer의 비즈니스 로직 사용)
         val variant = TrafficSplitter.assign(experiment, command.userId)
             ?: return AssignVariantResult.experimentNotFound(command.userId, command.experimentKey)
         val variantName = if (experiment.stickyBucketing) sticky.choose(experiment.key, command.userId, variant.name) else variant.name
-        if (experiment.variants.none { it.name == variantName }) return AssignVariantResult.experimentNotFound(command.userId, command.experimentKey)
+        if (experiment.variants.none { it.name == variantName } ||
+            command.supportedVariants?.let { variantName !in it } == true)
+            return AssignVariantResult.experimentNotFound(command.userId, command.experimentKey)
 
         // 3단계: 노출 이벤트 기록 (응답 전에 커밋)
         if (variantName.isNotEmpty()) {

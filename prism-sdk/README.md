@@ -122,6 +122,10 @@ val client = PrismClient(
 
 `REMOTE`는 기존 `GET /v1/assign`, `GET /v1/assignments`, `POST /v1/conversions`를 사용합니다. 할당은 노출 저장 후 반환하고, 전환 `true`는 서버가 수락했다는 뜻입니다. 원격 전환은 자동 재시도하지 않습니다. 사용자 속성을 전달한 원격 할당은 지원하지 않아 실패를 반환합니다. `evaluate()`와 `recordExposure()`는 로컬 전용입니다.
 
+전략 선택용 `assignSupported(userId, experimentKey, supportedVariants)`는 양수 비중의 모든 변형이 구현되었는지 노출 등록 전에 검사합니다. 지원되는 실험군만 재배정하지 않으며, 누락되면 전체 배정을 거부합니다. 이 메서드로 등록한 전략 제약은 같은 client의 전환에도 적용되어 과거 노출을 잘못 전환으로 집계하지 않습니다. 0% 변형의 기존 sticky 배정도 실제 전략이 없으면 거부합니다. 전략 목록은 client 수명 동안 고정이며 여러 목록을 등록하면 교집합을 사용합니다. LOCAL은 확인한 정의를 보관해 중지/종료 후에도 정상적인 지연 전환을 허용합니다. REMOTE는 `POST /v1/assign/supported`와 `POST /v1/conversions/supported`를 사용하므로 API를 먼저 업그레이드하세요. 구버전 API가 404를 반환하면 실패하며 기존 배정/전환 경로로 재시도하지 않습니다.
+
+등록한 제약은 일반 `assign()`·`evaluate()`·`recordExposure()`에도 적용됩니다. 전략 이름은 공백뿐일 수 없고 255자 이하, 목록은 1–1000개여야 합니다. 빈 목록이나 잘못된 이름을 등록하면 해당 client의 해당 실험 배정·노출·전환을 차단하며, 이후 목록을 다시 넣어도 제한을 완화하지 않습니다. 목록을 수정한 뒤 client를 재시작하세요. 전략을 등록하지 않은 실험의 기존 SDK 경로는 유지합니다.
+
 기존 두 API(`/v1/assign`, `/v1/conversions`)는 deprecated 상태로 하위 호환을 유지합니다. 구버전 API에 새 SDK를 연결할 때는 `REMOTE`를 명시해야 합니다.
 
 ## 지표 해석

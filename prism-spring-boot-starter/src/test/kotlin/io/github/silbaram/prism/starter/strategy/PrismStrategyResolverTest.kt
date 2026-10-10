@@ -41,7 +41,7 @@ class PrismStrategyResolverTest {
     @Test
     fun `variant A에 맞는 전략이 반환된다`() {
         // Given: variant A가 할당됨
-        every { mockPrismClient.assign("user-123", "pricing_strategy") } returns AssignmentResponse(
+        every { mockPrismClient.assignSupported("user-123", "pricing_strategy", any()) } returns AssignmentResponse(
             userId = "user-123",
             experimentKey = "pricing_strategy",
             variant = "A",
@@ -68,7 +68,7 @@ class PrismStrategyResolverTest {
     @Test
     fun `variant B에 맞는 전략이 반환된다`() {
         // Given: variant B가 할당됨
-        every { mockPrismClient.assign("user-456", "pricing_strategy") } returns AssignmentResponse(
+        every { mockPrismClient.assignSupported("user-456", "pricing_strategy", any()) } returns AssignmentResponse(
             userId = "user-456",
             experimentKey = "pricing_strategy",
             variant = "B",
@@ -93,13 +93,13 @@ class PrismStrategyResolverTest {
 
     @Test
     fun `Fallback 테스트 - variant 전략이 없으면 control로 폴백한다`() {
-        // Given: variant "C"가 할당됐지만 해당 전략이 없음
-        every { mockPrismClient.assign("user-789", "pricing_strategy") } returns AssignmentResponse(
+        // Given: 누락된 전략 때문에 할당이 거부됨
+        every { mockPrismClient.assignSupported("user-789", "pricing_strategy", any()) } returns AssignmentResponse(
             userId = "user-789",
             experimentKey = "pricing_strategy",
-            variant = "C",  // 존재하지 않는 variant
-            resultCode = ResponseCode.SUCCESS.code,
-            resultMessage = "Success"
+            variant = null,  // 노출 등록 전에 거부
+            resultCode = ResponseCode.EXPERIMENT_NOT_FOUND.code,
+            resultMessage = "Unsupported variants"
         )
 
         val strategyA = TestPricingStrategyA()
@@ -114,18 +114,18 @@ class PrismStrategyResolverTest {
 
         // Then: control 전략이 반환됨
         val result = strategy.calculatePrice(1000)
-        assertEquals(1000, result, "variant C 전략이 없으므로 control로 폴백해야 함")
+        assertEquals(1000, result, "전략 검증 실패 시 control로 폴백해야 함")
     }
 
     @Test
     fun `Fallback 테스트 - variant와 control 모두 없으면 예외가 발생한다`() {
-        // Given: variant "D"가 할당되고, control 전략도 없음
-        every { mockPrismClient.assign("user-999", "pricing_strategy") } returns AssignmentResponse(
+        // Given: 전략 검증에 실패했고, control 전략도 없음
+        every { mockPrismClient.assignSupported("user-999", "pricing_strategy", any()) } returns AssignmentResponse(
             userId = "user-999",
             experimentKey = "pricing_strategy",
-            variant = "D",
-            resultCode = ResponseCode.SUCCESS.code,
-            resultMessage = "Success"
+            variant = null,
+            resultCode = ResponseCode.EXPERIMENT_NOT_FOUND.code,
+            resultMessage = "Unsupported variants"
         )
 
         val strategyA = TestPricingStrategyA()
@@ -138,14 +138,14 @@ class PrismStrategyResolverTest {
         val exception = assertThrows<IllegalStateException> {
             resolver.resolve<TestPricingStrategy>("user-999", "pricing_strategy")
         }
-        assertTrue(exception.message!!.contains("variant='D'"))
+        assertTrue(exception.message!!.contains("variant='control'"))
         assertTrue(exception.message!!.contains("'control'"))
     }
 
     @Test
     fun `Fallback 테스트 - control variant가 할당되면 폴백 없이 바로 실행된다`() {
         // Given: control이 할당됨
-        every { mockPrismClient.assign("user-control", "pricing_strategy") } returns AssignmentResponse(
+        every { mockPrismClient.assignSupported("user-control", "pricing_strategy", any()) } returns AssignmentResponse(
             userId = "user-control",
             experimentKey = "pricing_strategy",
             variant = "control",
@@ -203,7 +203,7 @@ class PrismStrategyResolverTest {
     @Test
     fun `동시성 테스트 - 여러 스레드가 동시에 전략을 resolve해도 안전하다`() {
         // Given: variant A, B를 번갈아 할당
-        every { mockPrismClient.assign(any(), "pricing_strategy") } answers {
+        every { mockPrismClient.assignSupported(any(), "pricing_strategy", any()) } answers {
             val userId = firstArg<String>()
             val userNumber = userId.substringAfter("user-").toInt()
             val variant = if (userNumber % 2 == 0) "A" else "B"
@@ -274,7 +274,7 @@ class PrismStrategyResolverTest {
     @Test
     fun `동시성 테스트 - 캐시 미스가 동시에 발생해도 안전하다`() {
         // Given: checkout_strategy 실험에 대한 설정 (기존 실험 재사용)
-        every { mockPrismClient.assign(any(), "checkout_strategy") } answers {
+        every { mockPrismClient.assignSupported(any(), "checkout_strategy", any()) } answers {
             AssignmentResponse(
                 userId = firstArg(),  // 실제 userId를 반환
                 experimentKey = "checkout_strategy",

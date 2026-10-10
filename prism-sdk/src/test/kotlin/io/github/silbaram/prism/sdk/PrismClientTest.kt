@@ -1,5 +1,7 @@
 package io.github.silbaram.prism.sdk
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
 import io.github.silbaram.prism.common.rest.ResponseCode
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -28,6 +30,88 @@ class PrismClientTest {
     fun teardown() {
         client.close()
         mockWebServer.shutdown()
+    }
+
+    @Test
+    fun `ordinary remote assignment retains the registered strategy check`() {
+        for (user in listOf("registry-user", "next-user")) {
+            mockWebServer.enqueue(MockResponse().setBody("""{"userId":"$user","experimentKey":"checkout","variant":"A","resultCode":"0000","resultMessage":"Success"}"""))
+        }
+        assertEquals("A", client.assignSupported("registry-user", "checkout", setOf("A")).variant)
+        assertEquals("A", client.assign("next-user", "checkout").variant)
+        repeat(2) {
+            val request = mockWebServer.takeRequest()
+            assertEquals("/v1/assign/supported", request.path)
+            assertEquals(listOf("A"), jacksonObjectMapper().readTree(request.body.readUtf8())["supportedVariants"].map { it.asText() })
+        }
+    }
+
+    @Test
+    fun `empty remote registry blocks old exposures and normal assignment without HTTP writes`() {
+        mockWebServer.enqueue(MockResponse().setBody("""{"userId":"u","experimentKey":"checkout","variant":"A","resultCode":"0000","resultMessage":"Success"}"""))
+        val previous = client.assign("u", "checkout")
+        assertEquals("A", previous.variant)
+        assertEquals(null, client.assignSupported("new-user", "checkout", emptySet()).variant)
+        mockWebServer.enqueue(MockResponse().setBody("""{"userId":"u","experimentKey":"checkout","eventName":"purchase","variant":"A","resultCode":"0000","resultMessage":"Success"}"""))
+        assertFalse(client.trackConversion(previous, "purchase"))
+        assertEquals(null, client.assign("new-user", "checkout").variant)
+        assertEquals(1, mockWebServer.requestCount)
+    }
+
+    @Test
+    fun `supported routes preserve strategy identity and never fall back to unsafe legacy routes`() {
+        client.close()
+        client = PrismClient(mockWebServer.url("/").toString(), options = PrismClientOptions(
+            evaluationMode = EvaluationMode.REMOTE, apiKey = "prism-test-api-key-0123456789abcdef"))
+        val user = "User +&가"
+        val key = "Checkout/&"
+        val names = setOf("Control", "할인")
+        mockWebServer.enqueue(MockResponse().setResponseCode(404))
+        assertEquals(null, client.assignSupported(user, key, names).variant)
+        mockWebServer.enqueue(MockResponse().setResponseCode(404))
+        assertFalse(client.trackConversion(user, key, "purchase"))
+        val mapper = jacksonObjectMapper()
+        val assign = mockWebServer.takeRequest()
+        val conversion = mockWebServer.takeRequest()
+        assertEquals("/v1/assign/supported", assign.path)
+        assertEquals("/v1/conversions/supported", conversion.path)
+        for (request in listOf(assign, conversion)) {
+            assertEquals("POST", request.method)
+            assertEquals("prism-test-api-key-0123456789abcdef", request.getHeader("X-Prism-Api-Key"))
+            val body = mapper.readTree(request.body.readUtf8())
+            assertEquals(user, body["userId"].asText())
+            assertEquals(key, body["experimentKey"].asText())
+            assertEquals(names, body["supportedVariants"].map { it.asText() }.toSet())
+        }
+        assertEquals(2, mockWebServer.requestCount)
+    }
+
+    @Test
+    fun `supported assignment refuses mismatched identity or unsupported treatment responses`() {
+        val mapper = jacksonObjectMapper()
+        for (response in listOf(
+            AssignmentResponse("other", "checkout", "A", "0000", "Success"),
+            AssignmentResponse("u", "other", "A", "0000", "Success"),
+            AssignmentResponse("u", "checkout", "B", "0000", "Success"))) {
+            mockWebServer.enqueue(MockResponse().setBody(mapper.writeValueAsString(response)))
+            assertEquals(SdkResponseCode.CLIENT_ERROR.code, client.assignSupported("u", "checkout", setOf("A")).resultCode)
+        }
+    }
+
+    @Test
+    fun `registry restrictions are copied and cannot be widened by another strategy interface`() {
+        val names = mutableSetOf("A", "B")
+        repeat(2) { mockWebServer.enqueue(MockResponse().setResponseCode(404)) }
+        client.assignSupported("u", "checkout", names)
+        names.clear()
+        names.add("C")
+        client.assignSupported("u", "checkout", setOf("B", "C"))
+        mockWebServer.takeRequest()
+        val second = jacksonObjectMapper().readTree(mockWebServer.takeRequest().body.readUtf8())
+        assertEquals(listOf("B"), second["supportedVariants"].map { it.asText() })
+        assertEquals(null, client.assignSupported("u", "checkout", setOf("A")).variant)
+        assertFalse(client.trackConversion("u", "checkout", "purchase"))
+        assertEquals(2, mockWebServer.requestCount)
     }
 
     @Test

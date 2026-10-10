@@ -97,6 +97,97 @@ class LocalEvaluationClientTest {
     }
 
     @Test
+    fun `complete registry preserves normal SDK targeting analysis and deferred exposure`() {
+        create()
+        // The registry is complete even though this user lacks required targeting attributes.
+        assertNull(client.assignSupported("registry-user", "checkout", setOf("A")).variant)
+        val attributes = mapOf("age" to 25, "country" to "KR")
+        val analysis = ExposureAnalysisContext(mapOf("device" to "mobile"))
+        val assignment = client.assign("assigned-user", "checkout", attributes, analysis)
+        assertEquals("A", assignment.variant)
+        assertNull(client.evaluate("ineligible-user", "checkout", attributes + ("age" to 17)).variant)
+        val prepared = client.evaluate("prepared-user", "checkout", attributes)
+        assertEquals("A", prepared.variant)
+        assertTrue(client.recordExposure(prepared))
+        assertTrue(client.trackConversion(assignment, "purchase"))
+        assertTrue(client.flush())
+        val events = eventRequests.flatMap { it.events }
+        assertEquals(2, events.count { it.type == "exposure" })
+        assertEquals(1, events.count { it.type == "conversion" })
+        assertEquals(analysis, events.first { it.userId == "assigned-user" && it.type == "exposure" }.analysis)
+    }
+
+    @Test
+    fun `strategy restrictions also guard pure evaluation and deferred exposure registration`() {
+        config.set(ConfigResponse("a".repeat(64), listOf(ExperimentConfig("checkout", "ACTIVE",
+            listOf(VariantConfig("A", 50), VariantConfig("B", 50))))))
+        create()
+        val prepared = client.evaluate("prepared-user", "checkout")
+        assertNotNull(prepared.variant)
+        assertNull(client.assignSupported("registry-user", "checkout", setOf("A")).variant)
+        assertFalse(client.recordExposure(prepared))
+        assertNull(client.evaluate("next-user", "checkout").variant)
+        assertNull(client.assign("next-user", "checkout").variant)
+        assertEquals(0, client.pendingEventCount)
+        assertTrue(client.flush())
+        assertTrue(eventRequests.isEmpty())
+    }
+
+    @Test
+    fun `invalid strategy names block old local exposures instead of restoring unrestricted tracking`() {
+        config.set(ConfigResponse("a".repeat(64), listOf(ExperimentConfig("checkout", "ACTIVE", listOf(VariantConfig("A", 100))))))
+        create()
+        val previous = client.assign("returning-user", "checkout")
+        assertNotNull(previous.variant)
+        assertNull(client.assignSupported("new-user", "checkout", setOf(" ")).variant)
+        assertFalse(client.trackConversion(previous, "purchase"))
+        assertFalse(client.trackConversion("returning-user", "checkout", "purchase"))
+        assertEquals(1, client.pendingEventCount)
+    }
+
+    @Test
+    fun `incomplete local registry suppresses exposure and both conversion entry points`() {
+        config.set(ConfigResponse("a".repeat(64), listOf(ExperimentConfig("checkout", "ACTIVE",
+            listOf(VariantConfig("A", 50), VariantConfig("B", 50))))))
+        create()
+        val previous = client.assign("returning-user", "checkout")
+        assertNotNull(previous.variant)
+        assertTrue(client.flush())
+        repeat(12) { assertNull(client.assignSupported("user-$it", "checkout", setOf("A")).variant) }
+        assertFalse(client.trackConversion(previous, "purchase"))
+        assertFalse(client.trackConversion("returning-user", "checkout", "purchase"))
+        assertEquals(0, client.pendingEventCount)
+        assertTrue(client.flush())
+        assertEquals(1, eventRequests.flatMap { it.events }.size)
+        assertEquals("exposure", eventRequests.single().events.single().type)
+        assertEquals(0, remoteRequests.get())
+    }
+
+    @Test
+    fun `complete local registry allows conversions after pause but rejects historical unsupported sticky arm`() {
+        val definition = ExperimentConfig("checkout", "ACTIVE",
+            listOf(VariantConfig("A", 100), VariantConfig("B", 0)), stickyBucketing = true)
+        config.set(ConfigResponse("a".repeat(64), listOf(definition)))
+        val store = InMemoryStickyAssignmentStore().apply { getOrPut("stale-user", "checkout", "B") }
+        create(PrismClientOptions(stickyAssignmentStore = store, configSyncInterval = Duration.ofHours(1),
+            eventFlushInterval = Duration.ofHours(1)))
+        val stale = client.assign("stale-user", "checkout")
+        assertEquals("B", stale.variant)
+        val valid = client.assignSupported("valid-user", "checkout", setOf("A"))
+        assertEquals("A", valid.variant)
+        assertNull(client.assignSupported("stale-user", "checkout", setOf("A")).variant)
+        assertFalse(client.trackConversion(stale, "purchase"))
+        assertFalse(client.trackConversion("stale-user", "checkout", "purchase"))
+        config.set(ConfigResponse("b".repeat(64), emptyList(), revision = 1))
+        assertTrue(client.refreshConfig())
+        assertTrue(client.trackConversion(valid, "purchase"))
+        assertTrue(client.flush())
+        val events = eventRequests.flatMap { it.events }
+        assertEquals(2, events.count { it.type == "exposure" })
+        assertEquals(listOf("valid-user"), events.filter { it.type == "conversion" }.map { it.userId })
+    }
+
+    @Test
     fun `analysis metadata is explicit frozen with first exposure and absent from conversions`() {
         create()
         val segments = mutableMapOf("device" to "mobile")

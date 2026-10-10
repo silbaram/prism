@@ -53,7 +53,8 @@ class PrismStrategyResolver(
      * userId와 experimentKey를 기반으로 적절한 전략 구현체를 반환합니다.
      *
      * Fail-safe 동작:
-     * - variant 전략을 찾지 못하면 자동으로 "control" 전략으로 폴백합니다.
+     * - 양수 비중의 모든 variant 전략을 검증한 뒤 노출을 등록합니다.
+     * - 검증/할당 실패 시 노출 없이 "control" 전략으로 폴백합니다.
      * - control 전략도 없으면 예외를 던집니다.
      *
      * @param strategyInterface 전략 인터페이스 타입
@@ -64,14 +65,17 @@ class PrismStrategyResolver(
      */
     @Suppress("UNCHECKED_CAST")
     fun <T : Any> resolve(strategyInterface: Class<T>, userId: String, experimentKey: String): T {
-        // 1. variant 할당
-        val outcome = prismExperimentClient.assign(userId, experimentKey)
-        val variant = outcome.variant ?: "control"
+        // Inspect available strategies before an assignment can register an exposure.
+        val strategies = strategiesForExperiment(strategyInterface, experimentKey)
+        if (strategies.isEmpty()) throw IllegalStateException(
+            "실험 전략과 'control'을 찾을 수 없습니다. experimentKey=$experimentKey, interface=${strategyInterface.simpleName}")
+        val outcome = prismExperimentClient.assignSupported(userId, experimentKey, strategies.keys.toSet())
+        val variant = outcome.variant.takeIf { outcome.assigned } ?: "control"
 
         logger.debug { "전략 선택: experimentKey=$experimentKey, userId=${maskUserId(userId)}, variant=$variant" }
 
         // 2. 해당 variant의 전략 찾기
-        var strategy = findStrategyForVariant(strategyInterface, experimentKey, variant)
+        var strategy = strategies[variant]
 
         // 3. 전략을 찾지 못하면 control로 폴백 (Fail-safe)
         if (strategy == null && variant != "control") {
@@ -79,7 +83,7 @@ class PrismStrategyResolver(
                 "Strategy not found, falling back to 'control'. " +
                 "variant='$variant', experimentKey=$experimentKey, interface=${strategyInterface.simpleName}, userId=${maskUserId(userId)}"
             }
-            strategy = findStrategyForVariant(strategyInterface, experimentKey, "control")
+            strategy = strategies["control"]
         }
 
         // 4. control도 없으면 예외 발생
@@ -100,11 +104,10 @@ class PrismStrategyResolver(
      * Thread-Safety: computeIfAbsent는 원자적 연산을 보장하므로,
      * 동시에 여러 스레드가 호출하더라도 scanStrategiesForExperiment()는 단 한 번만 실행됩니다.
      */
-    private fun findStrategyForVariant(
+    private fun strategiesForExperiment(
         strategyInterface: Class<*>,
-        experimentKey: String,
-        variant: String
-    ): Any? {
+        experimentKey: String
+    ): Map<String, Any> {
         // 캐시 확인 (Issue 1 수정: getOrPut → computeIfAbsent)
         val interfaceCache = strategyCache.computeIfAbsent(strategyInterface) { ConcurrentHashMap() }
         val experimentCache = interfaceCache.computeIfAbsent(experimentKey) {
@@ -112,7 +115,7 @@ class PrismStrategyResolver(
             scanStrategiesForExperiment(strategyInterface, experimentKey)
         }
 
-        return experimentCache[variant]
+        return experimentCache
     }
 
     /**
@@ -145,7 +148,9 @@ class PrismStrategyResolver(
                     )
                 }
 
-                result[annotation.variant] = bean
+                require(result.putIfAbsent(annotation.variant, bean) == null) {
+                    "Duplicate @PrismStrategy: variant=${annotation.variant}, experimentKey=$experimentKey, interface=${strategyInterface.name}"
+                }
                 logger.debug {
                     "전략 등록: interface=${strategyInterface.simpleName}, experimentKey=$experimentKey, " +
                         "variant=${annotation.variant}, class=${bean.javaClass.simpleName}"

@@ -31,6 +31,7 @@ dependencies {
 
     // Spring Boot AutoConfiguration
     implementation("org.springframework.boot:spring-boot-autoconfigure")
+    implementation("org.springframework:spring-tx")
 
     // Jackson Kotlin 모듈
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
@@ -44,6 +45,8 @@ dependencies {
     // 테스트 의존성
     testImplementation(kotlin("test"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework:spring-jdbc")
+    testRuntimeOnly("com.h2database:h2")
 }
 
 // 소스 JAR 포함

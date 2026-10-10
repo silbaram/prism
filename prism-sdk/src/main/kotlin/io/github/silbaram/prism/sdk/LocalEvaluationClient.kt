@@ -55,6 +55,9 @@ internal class LocalEvaluationClient(
     // Lifetime deduplication is separate from the bounded, expiring server lookup cache.
     // Keep the original reference/version so conversions still point to an actual exposure.
     private val recordedExposures = HashMap<Key, ClientEvent>()
+    // Only retain definitions used by registered strategies. They remain valid for conversions
+    // after pause/end removes the experiment from the active snapshot (its design is locked).
+    private val supportedDefinitions = ConcurrentHashMap<String, Experiment>()
     private val populationExposures = HashMap<String, ClientEvent>()
     private val exposureDedupDiagnostics = ExposureDedupDiagnostics { total, sinceLastWarning ->
         logger.warn("Exposure deduplication capacity reached; rejecting new user/experiment exposures: used={}, capacity={}, rejectedSinceLastWarning={}, rejectedTotal={}",
@@ -126,13 +129,14 @@ internal class LocalEvaluationClient(
             val ranges = layer.map { it.layer!! }.sortedBy { it.start }
             require(ranges.zipWithNext().all { (left, right) -> left.end <= right.start }) { "Overlapping layer allocations" }
         }
+        supportedDefinitions.replaceAll { key, previous -> definitions[key] ?: previous }
         snapshot.set(Snapshot(config.version, etag, definitions, holdout, config.revision, config.holdout.configured))
         initialized.countDown()
         true
     }
 
     /** Pure evaluation; does not send or enqueue an exposure. */
-    fun evaluate(userId: String, experimentKey: String, attributes: Map<String, Any>): AssignmentResponse {
+    fun evaluate(userId: String, experimentKey: String, attributes: Map<String, Any>, supportedVariants: Set<String>? = null): AssignmentResponse {
         if (closed.get() || !validIdentity(userId) || !validIdentity(experimentKey)) return failed(userId, experimentKey)
         if (snapshot.get() == null) {
             try { initialized.await(options.initializationTimeout.toMillis(), TimeUnit.MILLISECONDS) }
@@ -141,6 +145,11 @@ internal class LocalEvaluationClient(
         if (closed.get()) return failed(userId, experimentKey)
         val state = snapshot.get() ?: return failed(userId, experimentKey)
         val experiment = state.experiments[experimentKey]
+        if (supportedVariants != null && experiment != null) {
+            supportedDefinitions.putIfAbsent(experimentKey, experiment)
+            if (experiment.variants.any { it.weight > 0 && it.name !in supportedVariants })
+                return AssignmentResponse(userId, experimentKey, null, SdkResponseCode.CLIENT_ERROR.code, "Experiment variants are not supported")
+        }
         val variant = try { experiment?.let {
             val proposed = TrafficSplitter.assign(it, userId, UserContext(attributes)) ?: return@let null
             if (!it.stickyBucketing) proposed else {
@@ -149,12 +158,15 @@ internal class LocalEvaluationClient(
             }
         } }
             catch (_: Exception) { return failed(userId, experimentKey) }
+        if (variant != null && supportedVariants != null && variant.name !in supportedVariants)
+            return failed(userId, experimentKey)
         val code = if (variant == null) ResponseCode.EXPERIMENT_NOT_FOUND else ResponseCode.SUCCESS
         return AssignmentResponse(userId, experimentKey, variant?.name, code.code, code.message, state.version)
     }
 
-    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any>, analysis: ExposureAnalysisContext? = null): AssignmentResponse {
-        val result = evaluate(userId, experimentKey, attributes)
+    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any>, analysis: ExposureAnalysisContext? = null,
+               supportedVariants: Set<String>? = null): AssignmentResponse {
+        val result = evaluate(userId, experimentKey, attributes, supportedVariants)
         if (result.variant == null) return result
         return when (val admission = enqueueExposure(result, analysis)) {
             is ExposureAdmission.Recorded -> result.copy(configVersion = admission.event.configVersion, exposureEventId = admission.event.eventId)
@@ -164,6 +176,11 @@ internal class LocalEvaluationClient(
     }
 
     fun recordExposure(result: AssignmentResponse, analysis: ExposureAnalysisContext? = null): Boolean = enqueueExposure(result, analysis) is ExposureAdmission.Recorded
+
+    fun supportsVariants(experimentKey: String, supported: Set<String>): Boolean = synchronized(refreshLock) {
+        val experiment = snapshot.get()?.experiments?.get(experimentKey) ?: supportedDefinitions[experimentKey] ?: return false
+        experiment.variants.any { it.weight > 0 } && experiment.variants.none { it.weight > 0 && it.name !in supported }
+    }
 
     /** null means no validated configuration is available; never guess the comparison cohort. */
     fun isInHoldout(userId: String): Boolean? = if (closed.get() || !validIdentity(userId)) null else snapshot.get()?.takeIf { it.holdoutConfigured }?.holdout?.excludes(userId)
@@ -285,20 +302,23 @@ internal class LocalEvaluationClient(
     }
 
     /** true means queued locally. Server acknowledgement is reported by flush(). */
-    fun trackConversion(userId: String, experimentKey: String, eventName: String, cacheTtl: Duration): Boolean {
+    fun trackConversion(userId: String, experimentKey: String, eventName: String, cacheTtl: Duration,
+                        supportedVariants: Set<String>? = null): Boolean {
         if (!validIdentity(eventName)) return false
         val queued = withExposure(userId, experimentKey, cacheTtl) { exposure ->
-            enqueueConversion(exposure, eventName)
+            if (supportedVariants != null && exposure.variant !in supportedVariants) false
+            else enqueueConversion(exposure, eventName)
         } ?: false
         if (queued) scheduleFlush()
         return queued
     }
 
     /** An explicit reference can cross process boundaries even before the exposure batch arrives. */
-    fun trackConversion(assignment: AssignmentResponse, eventName: String): Boolean {
+    fun trackConversion(assignment: AssignmentResponse, eventName: String, supportedVariants: Set<String>? = null): Boolean {
         val id = assignment.exposureEventId ?: return false
         val version = assignment.configVersion ?: return false
         val variant = assignment.variant ?: return false
+        if (supportedVariants != null && variant !in supportedVariants) return false
         if (assignment.resultCode != ResponseCode.SUCCESS.code || !validIdentity(eventName) ||
             !listOf(assignment.userId, assignment.experimentKey, variant).all(::validIdentity) ||
             !version.matches(Regex("[0-9a-f]{64}")) || !canonicalUuid(id)) return false

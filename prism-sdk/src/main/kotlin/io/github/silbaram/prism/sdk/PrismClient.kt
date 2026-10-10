@@ -4,8 +4,12 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import io.github.silbaram.prism.common.rest.ResponseCode
 import io.github.silbaram.prism.common.rest.dto.assign.AssignmentResponse
+import io.github.silbaram.prism.common.rest.dto.assign.SupportedAssignmentRequest
+import io.github.silbaram.prism.common.rest.dto.assign.validateSupportedVariants
 import io.github.silbaram.prism.common.rest.dto.conversion.ConversionRequest
 import io.github.silbaram.prism.common.rest.dto.conversion.ConversionResponse
+import io.github.silbaram.prism.common.rest.dto.conversion.SupportedConversionRequest
+import java.util.concurrent.ConcurrentHashMap
 import org.slf4j.LoggerFactory
 import java.net.URI
 import java.net.URLEncoder
@@ -30,24 +34,77 @@ class PrismClient @JvmOverloads constructor(
     private val objectMapper = jacksonObjectMapper()
     private val logger = LoggerFactory.getLogger(javaClass)
     private val apiKey = options.apiKey
+    // A strategy registry remains fixed for this client. Multiple registries for one experiment
+    // must all support its treatments, so restrictions can only become more conservative.
+    private val supportedVariants = ConcurrentHashMap<String, Set<String>>()
     private val local = if (options.evaluationMode == EvaluationMode.LOCAL)
         LocalEvaluationClient(baseUrl.trimEnd('/'), timeout, options, client) else null
 
     /** Local: evaluate and enqueue exposure. Remote: synchronously persist exposure. */
     @JvmOverloads
-    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any> = emptyMap(), analysis: ExposureAnalysisContext? = null): AssignmentResponse =
-        local?.assign(userId, experimentKey, attributes, analysis)
-            ?: if (attributes.isEmpty() && analysis == null) fetchAssignment("assign", userId, experimentKey)
-            else errorResponse(userId, experimentKey, "Attributes require local evaluation")
+    fun assign(userId: String, experimentKey: String, attributes: Map<String, Any> = emptyMap(), analysis: ExposureAnalysisContext? = null): AssignmentResponse {
+        val available = supportedVariants[experimentKey]
+        if (available?.isEmpty() == true) return errorResponse(userId, experimentKey, "No common supported variants")
+        return local?.assign(userId, experimentKey, attributes, analysis, available)
+            ?: if (attributes.isNotEmpty() || analysis != null) errorResponse(userId, experimentKey, "Attributes require local evaluation")
+            else if (available == null) fetchAssignment("assign", userId, experimentKey)
+            else fetchSupportedAssignment(userId, experimentKey, available)
+    }
+
+    /** Register all available strategy names without reallocating users into the supported subset. */
+    fun assignSupported(userId: String, experimentKey: String, variants: Set<String>): AssignmentResponse = try {
+        require(userId.isNotBlank() && userId.length <= 255 && experimentKey.isNotBlank() && experimentKey.length <= 255)
+        val registered = try {
+            variants.toSet().also(::validateSupportedVariants)
+        } catch (exception: Exception) {
+            // A rejected registry must not leave old exposures eligible for unrestricted
+            // conversions, including the first registration of an empty/invalid registry.
+            supportedVariants[experimentKey] = emptySet()
+            throw exception
+        }
+        val available = requireNotNull(supportedVariants.compute(experimentKey) { _, previous ->
+            previous?.intersect(registered) ?: registered
+        })
+        if (available.isEmpty()) errorResponse(userId, experimentKey, "No common supported variants")
+        else assign(userId, experimentKey)
+    } catch (exception: Exception) {
+        if (exception is InterruptedException) Thread.currentThread().interrupt()
+        errorResponse(userId, experimentKey, exception.javaClass.simpleName)
+    }
+
+    private fun fetchSupportedAssignment(userId: String, experimentKey: String, available: Set<String>): AssignmentResponse = try {
+        val request = HttpRequest.newBuilder(URI.create("${baseUrl.trimEnd('/')}/v1/assign/supported"))
+            .timeout(timeout).header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(
+                SupportedAssignmentRequest(userId, experimentKey, available)))).build()
+        val response = sendWithTimeout(client, request, timeout, apiKey)
+        if (response.statusCode() != 200) errorResponse(userId, experimentKey, "HTTP ${response.statusCode()}")
+        else objectMapper.readValue<AssignmentResponse>(response.body()).let { result ->
+            if (result.userId != userId || result.experimentKey != experimentKey ||
+                (result.variant != null && result.variant !in available))
+                errorResponse(userId, experimentKey, "Unsupported or mismatched assignment response")
+            else result
+        }
+    } catch (exception: Exception) {
+        if (exception is InterruptedException) Thread.currentThread().interrupt()
+        errorResponse(userId, experimentKey, exception.javaClass.simpleName)
+    }
 
     /** Pure local evaluation. Call recordExposure only when the experience is actually shown. */
     @JvmOverloads
     fun evaluate(userId: String, experimentKey: String, attributes: Map<String, Any> = emptyMap()): AssignmentResponse =
-        local?.evaluate(userId, experimentKey, attributes)
+        local?.evaluate(userId, experimentKey, attributes, supportedVariants[experimentKey])
             ?: errorResponse(userId, experimentKey, "Pure evaluation requires local mode")
 
     @JvmOverloads
-    fun recordExposure(assignment: AssignmentResponse, analysis: ExposureAnalysisContext? = null): Boolean = local?.recordExposure(assignment, analysis) ?: false
+    fun recordExposure(assignment: AssignmentResponse, analysis: ExposureAnalysisContext? = null): Boolean {
+        val evaluation = local ?: return false
+        supportedVariants[assignment.experimentKey]?.let { available ->
+            if (assignment.variant?.let { it in available } != true ||
+                !evaluation.supportsVariants(assignment.experimentKey, available)) return false
+        }
+        return evaluation.recordExposure(assignment, analysis)
+    }
     fun refreshConfig(): Boolean = local?.refreshConfig() ?: false
     fun isInHoldout(userId: String): Boolean? = local?.isInHoldout(userId)
     fun recordPopulationExposure(userId: String): Boolean = local?.recordPopulationExposure(userId) ?: false
@@ -91,20 +148,29 @@ class PrismClient @JvmOverloads constructor(
     }
 
     /** Local: true means queued against a prior local exposure. Remote: true means server accepted. */
-    fun trackConversion(assignment: AssignmentResponse, eventName: String): Boolean =
-        local?.trackConversion(assignment, eventName)
+    fun trackConversion(assignment: AssignmentResponse, eventName: String): Boolean {
+        if (local != null && !supportsLocalConversion(assignment.experimentKey)) return false
+        return local?.trackConversion(assignment, eventName, supportedVariants[assignment.experimentKey])
             ?: (assignment.resultCode == ResponseCode.SUCCESS.code && !assignment.variant.isNullOrBlank() &&
                 trackConversion(assignment.userId, assignment.experimentKey, eventName))
+    }
 
     /** Tracks against the most recent known exposure, refreshing it after exposureCacheTtl. */
     @JvmOverloads
     fun trackConversion(userId: String, experimentKey: String, eventName: String,
                         exposureCacheTtl: Duration = Duration.ofSeconds(30)): Boolean {
-        local?.let { return it.trackConversion(userId, experimentKey, eventName, exposureCacheTtl) }
+        local?.let {
+            if (!supportsLocalConversion(experimentKey)) return false
+            return it.trackConversion(userId, experimentKey, eventName, exposureCacheTtl, supportedVariants[experimentKey])
+        }
         return try {
-            val payload = ConversionRequest(experimentKey = experimentKey, userId = userId, eventName = eventName)
+            val available = supportedVariants[experimentKey]
+            if (available?.isEmpty() == true) return false
+            val payload = if (available == null) ConversionRequest(experimentKey = experimentKey, userId = userId, eventName = eventName)
+                else SupportedConversionRequest(userId, experimentKey, eventName, available)
+            val path = if (available == null) "conversions" else "conversions/supported"
             val request = HttpRequest.newBuilder()
-                .uri(URI.create("${baseUrl.trimEnd('/')}/v1/conversions"))
+                .uri(URI.create("${baseUrl.trimEnd('/')}/v1/$path"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .timeout(timeout).build()
@@ -121,6 +187,10 @@ class PrismClient @JvmOverloads constructor(
             false
         }
     }
+
+    private fun supportsLocalConversion(experimentKey: String): Boolean = supportedVariants[experimentKey]?.let {
+        local?.supportsVariants(experimentKey, it) == true
+    } ?: true
 
     private fun errorResponse(userId: String, experimentKey: String, error: String): AssignmentResponse {
         logger.warn("Assignment request failed: userId={}, experimentKey={}, error={}", maskUserId(userId), experimentKey, error)
