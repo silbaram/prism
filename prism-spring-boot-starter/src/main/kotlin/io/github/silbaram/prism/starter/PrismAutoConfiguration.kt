@@ -5,6 +5,8 @@ import io.github.silbaram.prism.sdk.PrismClientOptions
 import io.github.silbaram.prism.sdk.PrismExperimentClient
 import io.github.silbaram.prism.starter.aop.PrismExperimentAspect
 import io.github.silbaram.prism.starter.aop.PrismTrackConversionAspect
+import io.github.silbaram.prism.starter.aop.PrismTransactionLifecyclePostProcessor
+import org.springframework.beans.factory.config.BeanPostProcessor
 import io.github.silbaram.prism.starter.service.PrismConversionTracker
 import io.github.silbaram.prism.starter.strategy.PrismStrategyResolver
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -24,6 +26,12 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy
 class PrismAutoConfiguration(
     private val properties: PrismProperties
 ) {
+    companion object {
+        @Bean
+        @JvmStatic
+        @ConditionalOnBean(PrismExperimentClient::class)
+        fun prismTransactionLifecyclePostProcessor(): BeanPostProcessor = PrismTransactionLifecyclePostProcessor()
+    }
 
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean

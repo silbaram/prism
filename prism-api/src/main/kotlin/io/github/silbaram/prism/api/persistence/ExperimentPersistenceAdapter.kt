@@ -1,6 +1,7 @@
 package io.github.silbaram.prism.api.persistence
 
 import io.github.silbaram.prism.api.traffic.application.port.out.LoadExperimentPort
+import io.github.silbaram.prism.api.conversion.application.port.out.LoadConversionVariantsPort
 import io.github.silbaram.prism.core.model.Experiment
 import io.github.silbaram.prism.core.model.Variant
 import io.github.silbaram.prism.core.targeting.TargetingRule
@@ -12,7 +13,11 @@ import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
 @Component
-class ExperimentPersistenceAdapter(private val experiments: ExperimentRepository, private val policies: PopulationPolicyRepository) : LoadExperimentPort {
+class ExperimentPersistenceAdapter(private val experiments: ExperimentRepository, private val policies: PopulationPolicyRepository) : LoadExperimentPort, LoadConversionVariantsPort {
+    @Transactional(readOnly = true)
+    override fun loadConversionVariants(experimentKey: String): List<Variant>? =
+        experiments.findByKey(experimentKey)?.variants?.map { Variant(it.name, it.weight) }
+
     @Transactional(readOnly = true)
     override fun loadExperiment(experimentKey: String): Experiment? {
         val entity = experiments.findByKey(experimentKey)

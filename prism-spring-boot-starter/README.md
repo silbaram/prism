@@ -73,6 +73,10 @@ Admin에서 `checkout`의 목표 이벤트를 `purchase`로 설정하세요. `pu
 
 Spring AOP는 Spring 빈의 프록시를 거친 외부 호출에 적용됩니다. 같은 객체 내부의 직접 호출에는 적용되지 않습니다. `suspend` 함수나 비동기 결과의 완료 감지는 제공하지 않으므로, 완료 시점의 코드에서 명시적인 추적 메서드를 호출하세요.
 
+정상 반환 조건을 만족한 전환은 Spring의 동기 트랜잭션이 있으면 **커밋 성공 후** 추적합니다. `rollback-only`, 외부 메서드의 예외, DB 커밋 실패에는 성공 전환을 보내지 않습니다. `REQUIRES_NEW`는 자체 커밋을 따르며, `NESTED`나 Spring 세이브포인트로 취소된 작업은 바깥 트랜잭션이 커밋되어도 제외합니다. 추적 advice는 Spring 트랜잭션 advice 안에서 실행되도록 가장 낮은 우선순위를 사용합니다. 트랜잭션이 없으면 정상 반환 직후 추적하며, 활성 트랜잭션의 완료 알림을 등록할 수 없으면 경고 후 건너뜁니다. 명시적인 `PrismConversionTracker` / SDK 호출은 자동으로 지연되지 않으므로 커밋 후 호출하세요.
+
+자동 구성은 Spring 빈으로 관리되는 동기 `ConfigurableTransactionManager`의 완료 상태도 확인합니다. 이미 커밋된 `afterCommit` 콜백이나 `@TransactionalEventListener(AFTER_COMMIT)` 안에서 `@PrismTrackConversion`을 실행하면 즉시 추적하며, 새 `REQUIRES_NEW` 트랜잭션을 열면 그 트랜잭션의 커밋을 기다립니다. Spring이 관리하지 않는 트랜잭션 관리자 또는 직접 구성한 Aspect에서는 완료 콜백 안의 추적에 명시적인 SDK/Tracker를 사용하세요.
+
 ### 보조 이벤트와 조건
 
 ```kotlin
@@ -117,7 +121,11 @@ class PricingService(private val resolver: PrismStrategyResolver) {
 }
 ```
 
-Resolver는 Spring 빈의 프록시 자체를 반환하므로 트랜잭션·캐시 등의 advice가 유지됩니다. 할당 실패 또는 대응 전략이 없으면 `control`로 폴백하며, control도 없으면 예외입니다. 실험에 설정한 모든 변형의 전략을 제공해야 실제 실행과 노출의 귀속이 일치합니다.
+Resolver는 Spring 빈의 프록시 자체를 반환하므로 트랜잭션·캐시 등의 advice가 유지됩니다. **양수 비중의 모든 변형**에 전략이 있어야 노출을 등록합니다. 하나라도 빠지면 전체 실험의 배정을 거부하고 노출 없이 `control`로 폴백합니다. 기존 노출이 있어도 같은 client의 해당 실험 전환은 거부합니다. 0% 변형은 전략을 생략할 수 있지만, sticky 저장소에서 해당 변형이 반환되면 배정을 거부합니다. control도 없으면 예외이며, 중복 전략은 노출 전에 설정 오류로 처리합니다.
+
+전략 목록은 client 수명 동안 고정입니다. 같은 실험을 여러 인터페이스에서 사용하면 모두 지원하는 변형만 허용하므로 각 인터페이스에 전체 전략을 제공하세요. 목록을 바꾸려면 애플리케이션/client를 재시작합니다. REMOTE 모드는 새 `/v1/assign/supported`, `/v1/conversions/supported`가 필요하므로 API를 먼저 업그레이드하세요. 구버전 API에서는 노출을 기록하지 않고 폴백하며, 기존 API로 자동 재시도하지 않습니다.
+
+Resolver가 노출을 직접 등록하므로 같은 경험에 `@PrismExperiment`를 중복 적용하지 마세요. 전략 제약을 등록한 뒤에는 같은 client의 일반 SDK 배정·평가·노출 등록에도 그 제약이 적용됩니다. 잘못된 전략 이름이나 빈 목록은 해당 실험의 추적을 차단하므로 설정을 수정한 뒤 재시작해야 합니다.
 
 ## 명시적인 전환 추적
 

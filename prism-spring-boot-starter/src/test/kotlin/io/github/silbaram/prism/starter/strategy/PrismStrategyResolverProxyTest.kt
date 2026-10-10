@@ -38,7 +38,7 @@ class PrismStrategyResolverProxyTest {
 
     @Test
     fun `strategy resolution keeps JDK and CGLIB proxies and their advice`() {
-        every { mockPrismClient.assign("user-123", "proxy_test") } returns
+        every { mockPrismClient.assignSupported("user-123", "proxy_test", any()) } returns
             AssignmentResponse("user-123", "proxy_test", "A", "0000", "Success")
         for (cglib in listOf(false, true)) {
             var adviceCalls = 0
@@ -61,7 +61,7 @@ class PrismStrategyResolverProxyTest {
     @Test
     fun `프록시가 아닌 일반 객체는 어노테이션을 정상적으로 찾는다`() {
         // Given: variant A 할당
-        every { mockPrismClient.assign("user-456", "proxy_test") } returns AssignmentResponse(
+        every { mockPrismClient.assignSupported("user-456", "proxy_test", any()) } returns AssignmentResponse(
             userId = "user-456",
             experimentKey = "proxy_test",
             variant = "A",

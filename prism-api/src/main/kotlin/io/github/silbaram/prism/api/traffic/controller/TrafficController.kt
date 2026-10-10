@@ -8,6 +8,12 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.ExceptionHandler
+import org.springframework.web.bind.annotation.ResponseStatus
+import org.springframework.http.HttpStatus
+import io.github.silbaram.prism.common.rest.dto.assign.SupportedAssignmentRequest
 
 /**
  * 트래픽 분배 컨트롤러 (Inbound Adapter).
@@ -61,7 +67,16 @@ class TrafficController(
             experimentKey = experimentKey
         )
 
-        // 2단계: Use Case 호출 (비즈니스 로직은 Application Layer에서 처리)
+        return assign(command)
+    }
+
+    // A separate endpoint makes older API versions fail closed instead of silently ignoring
+    // a new query parameter while recording an unsupported treatment.
+    @PostMapping("/supported")
+    fun assignSupported(@RequestBody request: SupportedAssignmentRequest): AssignmentResponse =
+        assign(AssignVariantCommand(request.userId, request.experimentKey, request.supportedVariants))
+
+    private fun assign(command: AssignVariantCommand): AssignmentResponse {
         val result = assignVariantUseCase.assignVariant(command)
 
         // 3단계: 도메인 결과를 REST 응답으로 변환
@@ -83,4 +98,9 @@ class TrafficController(
             )
         }
     }
+
+    @ExceptionHandler(IllegalArgumentException::class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    fun invalidRequest(exception: IllegalArgumentException): Map<String, String> =
+        mapOf("message" to (exception.message ?: "Invalid assignment request"))
 }

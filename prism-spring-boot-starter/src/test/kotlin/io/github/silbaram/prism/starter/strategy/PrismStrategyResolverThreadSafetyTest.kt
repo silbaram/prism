@@ -17,7 +17,7 @@ class PrismStrategyResolverThreadSafetyTest {
     fun `concurrent resolution scans the strategy beans exactly once`() {
         val context = mockk<ApplicationContext>()
         val transport = mockk<PrismClient>()
-        every { transport.assign(any(), "race_test") } answers {
+        every { transport.assignSupported(any(), "race_test", any()) } answers {
             AssignmentResponse(firstArg(), "race_test", "A", "0000", "Success")
         }
         val strategy = TestRaceStrategy()

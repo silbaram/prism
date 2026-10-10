@@ -1,5 +1,7 @@
 package io.github.silbaram.prism.api.traffic.application.port.`in`
 
+import io.github.silbaram.prism.common.rest.dto.assign.validateSupportedVariants
+
 /**
  * 변형 할당 유스케이스 (Inbound Port).
  *
@@ -27,8 +29,15 @@ interface AssignVariantUseCase {
  */
 data class AssignVariantCommand(
     val userId: String,
-    val experimentKey: String
-)
+    val experimentKey: String,
+    val supportedVariants: Set<String>? = null
+) {
+    init {
+        require(userId.isNotBlank() && userId.length <= 255) { "userId must contain 1–255 characters" }
+        require(experimentKey.isNotBlank() && experimentKey.length <= 255) { "experimentKey must contain 1–255 characters" }
+        supportedVariants?.let(::validateSupportedVariants)
+    }
+}
 
 /**
  * 변형 할당 결과.

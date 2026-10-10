@@ -29,12 +29,20 @@ class PrismExperimentClient @JvmOverloads constructor(
     /** Registers actual exposure: LOCAL deduplicates during client lifetime; REMOTE persists each call. */
     @JvmOverloads
     fun assign(userId: String, experimentKey: String, attributes: Map<String, Any> = emptyMap(), analysis: ExposureAnalysisContext? = null): AssignmentOutcome {
-        val key = AssignmentKey(userId, experimentKey)
-        val outcome = safely(userId, experimentKey) {
+        return assignAndRemember(userId, experimentKey) {
             if (analysis != null) prismClient.assign(userId, experimentKey, attributes, analysis)
             else if (attributes.isEmpty()) prismClient.assign(userId, experimentKey)
             else prismClient.assign(userId, experimentKey, attributes)
         }
+    }
+
+    /** Validates every positive-weight treatment before recording exposure; used by strategy resolvers. */
+    fun assignSupported(userId: String, experimentKey: String, supportedVariants: Set<String>): AssignmentOutcome =
+        assignAndRemember(userId, experimentKey) { prismClient.assignSupported(userId, experimentKey, supportedVariants) }
+
+    private fun assignAndRemember(userId: String, experimentKey: String, request: () -> AssignmentResponse): AssignmentOutcome {
+        val key = AssignmentKey(userId, experimentKey)
+        val outcome = safely(userId, experimentKey, request)
         if (outcome.assigned) {
             assignments.put(key, outcome)
             lookups[key]?.complete(outcome)

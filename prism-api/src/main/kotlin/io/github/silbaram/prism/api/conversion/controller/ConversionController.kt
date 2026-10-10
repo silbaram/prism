@@ -6,6 +6,7 @@ import io.github.silbaram.prism.api.conversion.application.port.`in`.TrackConver
 import io.github.silbaram.prism.common.rest.ResponseCode
 import io.github.silbaram.prism.common.rest.dto.conversion.ConversionRequest
 import io.github.silbaram.prism.common.rest.dto.conversion.ConversionResponse
+import io.github.silbaram.prism.common.rest.dto.conversion.SupportedConversionRequest
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.*
 
@@ -15,13 +16,20 @@ class ConversionController(private val trackConversionUseCase: TrackConversionUs
     @Deprecated("Use POST /v1/events; retained for remote clients")
     @PostMapping
     fun trackConversion(@RequestBody request: ConversionRequest): ConversionResponse {
-        val result = trackConversionUseCase.trackConversion(
-            TrackConversionCommand(request.userId, request.experimentKey, request.eventName))
+        return track(TrackConversionCommand(request.userId, request.experimentKey, request.eventName))
+    }
+
+    @PostMapping("/supported")
+    fun trackSupportedConversion(@RequestBody request: SupportedConversionRequest): ConversionResponse =
+        track(TrackConversionCommand(request.userId, request.experimentKey, request.eventName, request.supportedVariants))
+
+    private fun track(command: TrackConversionCommand): ConversionResponse {
+        val result = trackConversionUseCase.trackConversion(command)
         val code = when (result) {
             is TrackConversionResult.Recorded -> ResponseCode.SUCCESS
             is TrackConversionResult.Rejected -> ResponseCode.IMPRESSION_NOT_FOUND
         }
-        return ConversionResponse(request.userId, request.experimentKey, request.eventName,
+        return ConversionResponse(command.userId, command.experimentKey, command.eventName,
             (result as? TrackConversionResult.Recorded)?.variantName, code.code, code.message)
     }
 

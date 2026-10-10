@@ -50,5 +50,6 @@ dependencies {
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(project(":prism-sdk"))
+    testImplementation(project(":prism-spring-boot-starter"))
     testRuntimeOnly("com.h2database:h2")
 }
