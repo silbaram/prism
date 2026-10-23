@@ -1,5 +1,7 @@
 # Prism Spring Boot Starter
 
+SDK의 설정 신선도와 전송 상태는 주입받은 `PrismClient.diagnostics`로 조회합니다. 선택적으로 `prism.client.max-config-age=5m`, `prism.client.stale-config-policy=BLOCK_NEW_ASSIGNMENTS`를 설정하면 마지막 정상 서버 확인으로부터 5분 이상 지난 새 배정·노출을 차단합니다. 기본값은 기한 없이 기존 설정 유지입니다. [진단·만료 정책 안내](../docs/sdk-diagnostics.md)를 참고하세요.
+
 Spring Boot 4 / JDK 21 기반의 할당, 전략 선택, 전환 추적 통합입니다.
 
 코어·SDK는 Spring 실행 의존성과 분리돼 있으며 스타터가 자동 설정·AOP·트랜잭션 연동을 담당합니다. 기존 SpEL 호환 모듈은 스타터에 포함됩니다. `TargetingEvaluator` Bean을 제공하면 LOCAL SDK의 평가기를 교체할 수 있습니다. [기본 SDK·데이터 규칙·업그레이드](../docs/framework-independent-sdk.md)를 참고하세요.

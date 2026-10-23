@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div class="container">
+    <h2>타기팅 속성</h2>
+    <p class="text-muted">서비스가 SDK에 전달하는 속성의 이름과 자료형을 등록하세요. 등록은 사용자 데이터 수집이나 실험 규칙 변경을 만들지 않습니다.</p>
+    <form th:if="${canManageExperiments}" th:action="@{/admin/targeting/attributes}" method="post" class="card card-body mb-4">
+        <div class="row g-2">
+            <div class="col-md-3"><label class="form-label" for="attrName">속성 이름</label><input id="attrName" name="name" class="form-control" maxlength="255" required placeholder="country"></div>
+            <div class="col-md-2"><label class="form-label" for="attrType">자료형</label><select id="attrType" name="type" class="form-select"><option value="STRING">문자열</option><option value="NUMBER">숫자</option><option value="BOOLEAN">불리언</option></select></div>
+            <div class="col-md-5"><label class="form-label" for="attrDescription">설명</label><input id="attrDescription" name="description" class="form-control" maxlength="1000"></div>
+            <div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100">등록</button></div>
+        </div>
+    </form>
+    <table class="table table-striped"><thead><tr><th>속성</th><th>자료형</th><th>설명</th></tr></thead><tbody>
+        <tr th:each="a : ${attributes}"><td th:text="${a.name}"></td><td th:text="${a.type}"></td><td th:text="${a.description}"></td></tr>
+        <tr th:if="${#lists.isEmpty(attributes)}"><td colspan="3">등록된 속성이 없습니다. 예: age(숫자), country(문자열), premium(불리언).</td></tr>
+    </tbody></table>
+    <a th:href="@{/admin/experiments}" class="btn btn-outline-secondary">실험 목록</a>
+</div>
+</th:block>
+</html>

@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets
 import java.net.http.*
 import java.time.Duration
 import java.time.Instant
+import java.time.Clock
 import java.util.UUID
 import java.util.concurrent.*
 import java.util.concurrent.atomic.*
@@ -29,17 +30,20 @@ internal class LocalEvaluationClient(
     private val baseUrl: String,
     private val timeout: Duration,
     private val options: PrismClientOptions,
-    private val http: HttpClient
+    private val http: HttpClient,
+    private val clock: Clock = Clock.systemUTC(),
+    private val ticker: () -> Long = System::nanoTime
 ) : AutoCloseable {
     private data class Snapshot(val version: String, val etag: String?, val experiments: Map<String, Experiment>,
                                 val holdout: io.github.silbaram.prism.core.model.HoldoutPolicy, val revision: Long, val holdoutConfigured: Boolean,
-                                val targetingErrors: Map<String, String>)
+                                val targetingErrors: Map<String, String>, val confirmedAt: Instant, val confirmedAtNanos: Long)
     private data class Key(val userId: String, val experimentKey: String)
     private data class CachedExposure(val event: ClientEvent, val cachedAt: Long = System.nanoTime())
     private sealed interface ExposureAdmission {
         data class Recorded(val event: ClientEvent) : ExposureAdmission
         data object Unavailable : ExposureAdmission
         data object CapacityReached : ExposureAdmission
+        data object StaleConfiguration : ExposureAdmission
     }
     private val mapper = jacksonObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -52,6 +56,15 @@ internal class LocalEvaluationClient(
     private val refreshLock = Any()
     private val fetchLock = Any()
     private val queue = LinkedHashMap<String, ClientEvent>()
+    private val delivery = EventDeliveryMonitor(clock, ticker)
+    // Config diagnostics use refreshLock; monotonic freshness belongs to the installed snapshot.
+    private var configAttemptAt: Instant? = null
+    private var configSyncResult = ConfigSyncResult.NOT_ATTEMPTED
+    private var configFailureCount = 0L
+    private var configFailureAt: Instant? = null
+    private var configFailure: SdkDiagnosticFailure? = null
+    private var configFailureHttpStatus: Int? = null
+    private val staleRejectedCount = AtomicLong()
     private val exposures = Caffeine.newBuilder().maximumSize(options.exposureCacheMaximumSize).build<Key, CachedExposure>()
     // Pending exposures must survive cache expiry/eviction until the collector acknowledges them.
     private val pendingExposures = HashMap<Key, ClientEvent>()
@@ -79,7 +92,7 @@ internal class LocalEvaluationClient(
     }
     private val configWorker = scheduler("prism-config-sync")
     private val eventWorker = scheduler("prism-event-flush")
-    private val stream = if (options.configStreaming) ConfigStreamClient(baseUrl, timeout, options.apiKey, http) { installConfig(it, null) } else null
+    private val stream = if (options.configStreaming) ConfigStreamClient(baseUrl, timeout, options.apiKey, http, ::installStreamConfig) else null
     private val shutdownHook = Thread({ close() }, "prism-shutdown")
 
     init {
@@ -91,18 +104,48 @@ internal class LocalEvaluationClient(
 
     fun refreshConfig(): Boolean = synchronized(fetchLock) {
         if (closed.get()) return false
+        synchronized(refreshLock) { configAttemptAt = clock.instant() }
         try {
             val request = HttpRequest.newBuilder(URI.create("$baseUrl/v1/config")).timeout(timeout).GET()
-            snapshot.get()?.etag?.let { request.header("If-None-Match", it) }
+            val requestedState = snapshot.get()
+            requestedState?.etag?.let { request.header("If-None-Match", it) }
             val response = send(request.build())
             if (closed.get()) return false
-            if (response.statusCode() == 304) return snapshot.get() != null
-            check(response.statusCode() == 200) { "Configuration HTTP ${response.statusCode()}" }
+            if (response.statusCode() == 304) return synchronized(refreshLock) {
+                if (closed.get()) return false
+                if (requestedState?.etag == null) throw DiagnosticException(SdkDiagnosticFailure.INVALID_RESPONSE)
+                val current = snapshot.get() ?: throw DiagnosticException(SdkDiagnosticFailure.INVALID_RESPONSE)
+                // An older conditional request cannot confirm a newer streamed revision.
+                if (current.version == requestedState.version && current.revision == requestedState.revision) {
+                    snapshot.set(current.copy(confirmedAt = clock.instant(), confirmedAtNanos = ticker()))
+                    configSyncResult = ConfigSyncResult.SUCCESS
+                    configFailureCount = 0
+                }
+                true
+            }
+            if (response.statusCode() != 200) throw DiagnosticException(SdkDiagnosticFailure.HTTP_ERROR, response.statusCode())
             installConfig(response.body(), response.headers().firstValue("ETag").orElse(null))
         } catch (e: Exception) {
             if (e is InterruptedException) Thread.currentThread().interrupt()
-            logger.warn("Configuration sync failed; retaining last successful snapshot: {}", e.javaClass.simpleName)
+            recordConfigFailure(e)
+            logger.warn("Configuration sync failed; retaining last successful snapshot: {}", diagnosticFailure(e))
             false
+        }
+    }
+
+    private fun installStreamConfig(body: String) {
+        synchronized(refreshLock) { configAttemptAt = clock.instant() }
+        try { installConfig(body, null) }
+        catch (error: Exception) { recordConfigFailure(error) }
+    }
+
+    private fun recordConfigFailure(error: Exception) = synchronized(refreshLock) {
+        if (!closed.get()) {
+            configSyncResult = ConfigSyncResult.FAILED
+            configFailureCount++
+            configFailureAt = clock.instant()
+            configFailure = diagnosticFailure(error)
+            configFailureHttpStatus = diagnosticHttpStatus(error)
         }
     }
 
@@ -110,7 +153,7 @@ internal class LocalEvaluationClient(
         if (closed.get()) return false
         val config = mapper.readValue<ConfigResponse>(body)
         require(config.revision >= 0)
-        if (config.revision < (snapshot.get()?.revision ?: 0)) return false
+        if (config.revision < (snapshot.get()?.revision ?: 0)) throw DiagnosticException(SdkDiagnosticFailure.OUTDATED_REVISION)
         require(config.version.matches(Regex("[0-9a-f]{64}"))) { "Invalid configuration version" }
         require(config.experiments.map { it.key }.toSet().size == config.experiments.size) { "Duplicate experiment keys" }
         val holdout = io.github.silbaram.prism.core.model.HoldoutPolicy(config.holdout.key, config.holdout.basisPoints)
@@ -142,7 +185,10 @@ internal class LocalEvaluationClient(
             require(ranges.zipWithNext().all { (left, right) -> left.end <= right.start }) { "Overlapping layer allocations" }
         }
         supportedDefinitions.replaceAll { key, previous -> definitions[key] ?: previous }
-        snapshot.set(Snapshot(config.version, etag, definitions, holdout, config.revision, config.holdout.configured, targetingErrors))
+        snapshot.set(Snapshot(config.version, etag, definitions, holdout, config.revision, config.holdout.configured,
+            targetingErrors, clock.instant(), ticker()))
+        configSyncResult = ConfigSyncResult.SUCCESS
+        configFailureCount = 0
         initialized.countDown()
         true
     }
@@ -156,6 +202,7 @@ internal class LocalEvaluationClient(
         }
         if (closed.get()) return failed(userId, experimentKey)
         val state = snapshot.get() ?: return failed(userId, experimentKey)
+        if (rejectStale(state)) return failed(userId, experimentKey, SdkResponseCode.STALE_CONFIGURATION)
         if (experimentKey in state.targetingErrors)
             return failed(userId, experimentKey, SdkResponseCode.TARGETING_CONFIGURATION_REJECTED)
         val experiment = state.experiments[experimentKey]
@@ -186,6 +233,7 @@ internal class LocalEvaluationClient(
             is ExposureAdmission.Recorded -> result.copy(configVersion = admission.event.configVersion, exposureEventId = admission.event.eventId)
             ExposureAdmission.CapacityReached -> failed(userId, experimentKey, SdkResponseCode.EXPOSURE_DEDUP_CAPACITY_REACHED)
             ExposureAdmission.Unavailable -> failed(userId, experimentKey)
+            ExposureAdmission.StaleConfiguration -> failed(userId, experimentKey, SdkResponseCode.STALE_CONFIGURATION)
         }
     }
 
@@ -197,7 +245,8 @@ internal class LocalEvaluationClient(
     }
 
     /** null means no validated configuration is available; never guess the comparison cohort. */
-    fun isInHoldout(userId: String): Boolean? = if (closed.get() || !validIdentity(userId)) null else snapshot.get()?.takeIf { it.holdoutConfigured }?.holdout?.excludes(userId)
+    fun isInHoldout(userId: String): Boolean? = if (closed.get() || !validIdentity(userId)) null else
+        snapshot.get()?.takeIf { it.holdoutConfigured && !blocksNewAssignments(it) }?.holdout?.excludes(userId)
 
     fun recordPopulationExposure(userId: String): Boolean {
         if (closed.get() || !validIdentity(userId)) return false
@@ -206,6 +255,7 @@ internal class LocalEvaluationClient(
         val state = snapshot.get()?.takeIf { it.holdoutConfigured } ?: return false
         synchronized(queue) {
             if (closed.get()) return false
+            if (rejectStale(snapshot.get())) return false
             if (populationExposures.containsKey(userId)) return true
             if (populationExposures.size >= options.exposureDedupCapacity) {
                 populationDedupDiagnostics.reject()
@@ -241,6 +291,7 @@ internal class LocalEvaluationClient(
             variant, Instant.now().toString(), version, analysis = analysis?.copy(segments = analysis.segments.toMap()))
         synchronized(queue) {
             if (closed.get()) return ExposureAdmission.Unavailable
+            if (rejectStale(snapshot.get())) return ExposureAdmission.StaleConfiguration
             val key = Key(result.userId, result.experimentKey)
             recordedExposures[key]?.takeIf { it.variant == variant }?.let {
                 exposures.put(key, CachedExposure(it))
@@ -356,9 +407,40 @@ internal class LocalEvaluationClient(
 
     // Local exposure registration and event enqueueing use the same monitor.
     private fun enqueue(event: ClientEvent): Boolean {
-        if (closed.get() || queue.size >= options.eventQueueCapacity) return false
+        if (closed.get()) return false
+        if (queue.size >= options.eventQueueCapacity) { delivery.capacityRejected++; return false }
         queue[event.eventId] = event
+        delivery.enqueued(event.eventId)
         return true
+    }
+
+    private fun age(state: Snapshot): Duration = Duration.ofNanos((ticker() - state.confirmedAtNanos).coerceAtLeast(0))
+    private fun isStale(state: Snapshot): Boolean = options.maxConfigAge?.let { age(state) >= it } ?: false
+    private fun blocksNewAssignments(state: Snapshot): Boolean =
+        options.staleConfigPolicy == StaleConfigPolicy.BLOCK_NEW_ASSIGNMENTS && isStale(state)
+    private fun rejectStale(state: Snapshot?): Boolean = (state != null && blocksNewAssignments(state)).also {
+        if (it) staleRejectedCount.incrementAndGet()
+    }
+
+    val diagnostics: SdkDiagnostics get() {
+        val configuration = synchronized(refreshLock) {
+            val state = snapshot.get()
+            ConfigurationDiagnostics(
+                when {
+                    state == null -> ConfigurationStatus.NOT_INITIALIZED
+                    options.maxConfigAge == null -> ConfigurationStatus.UNBOUNDED
+                    isStale(state) -> ConfigurationStatus.STALE
+                    else -> ConfigurationStatus.FRESH
+                },
+                state?.version, state?.revision, state?.let(::age), options.maxConfigAge, options.staleConfigPolicy,
+                configAttemptAt, state?.confirmedAt, configSyncResult, configFailureCount, configFailureAt, configFailure, configFailureHttpStatus,
+                state?.targetingErrors?.size ?: 0, staleRejectedCount.get())
+        }
+        return synchronized(queue) {
+            SdkDiagnostics(EvaluationMode.LOCAL, closed.get(), configuration, delivery.snapshot(queue.size, options.eventQueueCapacity),
+                ExposureDedupSnapshot(recordedExposures.size, populationExposures.size, options.exposureDedupCapacity,
+                    exposureDedupDiagnostics.rejectedCount, populationDedupDiagnostics.rejectedCount))
+        }
     }
 
     val pendingEventCount: Int get() = synchronized(queue) { queue.size }
@@ -381,6 +463,7 @@ internal class LocalEvaluationClient(
         try {
             if (!flushLock.tryLock(totalBudget.toNanos(), TimeUnit.NANOSECONDS)) return false
         } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
+        var batchInFlight = false
         try {
             val remaining = synchronized(queue) { queue.keys.toList() }
             var rejected = false
@@ -395,14 +478,18 @@ internal class LocalEvaluationClient(
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(EventsRequest(batch)))).build()
                 val remainingNanos = deadline - System.nanoTime()
                 if (remainingNanos <= 0) return false
+                synchronized(queue) { delivery.beginBatch() }
+                batchInFlight = true
                 val response = send(request, Duration.ofNanos(minOf(timeout.toNanos(), remainingNanos)))
-                check(response.statusCode() == 200) { "Events HTTP ${response.statusCode()}" }
+                if (response.statusCode() != 200) throw DiagnosticException(SdkDiagnosticFailure.HTTP_ERROR, response.statusCode())
                 val results = mapper.readValue<EventsResponse>(response.body()).results
-                check(results.size == batch.size && results.map { it.eventId }.toSet() == batch.map { it.eventId }.toSet()) {
-                    "Incomplete or mismatched event acknowledgements"
-                }
+                if (results.size != batch.size || results.map { it.eventId }.toSet() != batch.map { it.eventId }.toSet())
+                    throw DiagnosticException(SdkDiagnosticFailure.INVALID_RESPONSE)
                 synchronized(queue) {
+                    delivery.acknowledgedBatch()
+                    batchInFlight = false
                     results.forEach { result ->
+                        delivery.acknowledged(result.eventId, result.status)
                         if (result.status != EventStatus.RETRY) {
                             val removed = queue.remove(result.eventId)
                             if (removed?.type == "exposure" && result.status != EventStatus.QUEUED) {
@@ -414,11 +501,11 @@ internal class LocalEvaluationClient(
                                 if (removed?.type == "population_exposure") {
                                     rejectedExposures.put(removed.eventId, true)
                                     populationExposures.remove(removed.userId, removed)
-                                    queue.values.removeIf { it.exposureEventId == removed.eventId }
+                                    discardDependentConversions(removed.eventId)
                                 }
                                 if (removed?.type == "exposure") {
                                     rejectedExposures.put(removed.eventId, true)
-                                    queue.values.removeIf { it.exposureEventId == removed.eventId }
+                                    discardDependentConversions(removed.eventId)
                                     val key = Key(removed.userId, removed.experimentKey)
                                     recordedExposures.remove(key, removed)
                                     exposures.getIfPresent(key)?.takeIf { it.event.eventId == removed.eventId }
@@ -433,9 +520,16 @@ internal class LocalEvaluationClient(
             return !rejected && pendingEventCount == 0
         } catch (e: Exception) {
             if (e is InterruptedException) Thread.currentThread().interrupt()
-            logger.warn("Event delivery failed; retaining queued events: {}", e.javaClass.simpleName)
+            if (batchInFlight) synchronized(queue) { delivery.failedBatch(e) }
+            logger.warn("Event delivery failed; retaining queued events: {}", diagnosticFailure(e))
             return false
         } finally { flushLock.unlock() }
+    }
+
+    private fun discardDependentConversions(exposureId: String) {
+        queue.values.removeIf { event ->
+            (event.exposureEventId == exposureId).also { if (it) delivery.discarded(event.eventId) }
+        }
     }
 
     override fun close() {
@@ -470,6 +564,7 @@ internal class LocalEvaluationClient(
             when (code) {
                 SdkResponseCode.EXPOSURE_DEDUP_CAPACITY_REACHED -> "Exposure deduplication capacity reached"
                 SdkResponseCode.TARGETING_CONFIGURATION_REJECTED -> "Targeting configuration unavailable or invalid"
+                SdkResponseCode.STALE_CONFIGURATION -> "Configuration maximum age exceeded"
                 else -> "Local evaluation unavailable"
             })
 }

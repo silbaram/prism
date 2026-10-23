@@ -78,6 +78,13 @@ public class SdkConsumer {
             if (!client.track(assignment, "purchase") || !transport.flush()) {
                 throw new AssertionError("Published SDK event delivery failed");
             }
+            var diagnostics = transport.getDiagnostics();
+            if (diagnostics.getConfiguration() == null || diagnostics.getEvents() == null ||
+                diagnostics.getConfiguration().getStatus() != io.github.silbaram.prism.sdk.ConfigurationStatus.UNBOUNDED ||
+                diagnostics.getConfiguration().getVersion() == null || diagnostics.getEvents().getAcceptedCount() != 2 ||
+                diagnostics.getEvents().getPendingCount() != 0 || diagnostics.getClosed()) {
+                throw new AssertionError("Published SDK diagnostics contract failed");
+            }
             if (client.assign("too-young", "checkout", Map.of("age", 10, "country", "KR")).getAssigned()) {
                 throw new AssertionError("Targeting was not applied");
             }

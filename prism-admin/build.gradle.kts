@@ -14,6 +14,7 @@ tasks.getByName<BootJar>("bootJar") {
 
 dependencies {
     implementation(project(":prism-core"))
+    implementation(project(":prism-common"))
     implementation(project(":prism-targeting-spel"))
     implementation(project(":prism-infrastructure"))
     implementation("org.apache.commons:commons-math3:3.6.1")

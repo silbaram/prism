@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
+import io.github.silbaram.prism.admin.service.PreviewMode
 
 @Controller
 @RequestMapping("/admin/simulator")
@@ -26,15 +27,23 @@ class SimulatorController(
     fun test(
         @RequestParam experimentId: Long,
         @RequestParam userId: String,
+        @RequestParam(defaultValue = "{}") attributes: String,
+        @RequestParam(defaultValue = "CURRENT") previewMode: PreviewMode,
         model: Model
     ): String {
-        val result = simulatorService.simulateAssignment(experimentId, userId)
-
         model.addAttribute("experiments", experimentService.getAllExperiments())
         model.addAttribute("selectedExperimentId", experimentId)
         model.addAttribute("userId", userId)
-        model.addAttribute("result", result.assignedVariant)
-        model.addAttribute("simulationCompleted", true)
+        model.addAttribute("attributes", attributes)
+        model.addAttribute("previewMode", previewMode.name)
+        try {
+            val result = simulatorService.simulateAssignment(experimentId, userId, attributes, previewMode)
+            model.addAttribute("result", result.assignedVariant)
+            model.addAttribute("simulation", result)
+            model.addAttribute("simulationCompleted", true)
+        } catch (error: IllegalArgumentException) {
+            model.addAttribute("simulationError", error.message ?: "입력값을 확인하세요.")
+        }
 
         return "simulator/index"
     }

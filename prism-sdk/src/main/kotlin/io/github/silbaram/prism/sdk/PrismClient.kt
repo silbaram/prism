@@ -10,6 +10,7 @@ import io.github.silbaram.prism.common.rest.dto.conversion.ConversionRequest
 import io.github.silbaram.prism.common.rest.dto.conversion.ConversionResponse
 import io.github.silbaram.prism.common.rest.dto.conversion.SupportedConversionRequest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import org.slf4j.LoggerFactory
 import java.net.URI
 import java.net.URLEncoder
@@ -34,6 +35,7 @@ class PrismClient @JvmOverloads constructor(
     private val objectMapper = jacksonObjectMapper()
     private val logger = LoggerFactory.getLogger(javaClass)
     private val apiKey = options.apiKey
+    private val remoteClosed = AtomicBoolean()
     // A strategy registry remains fixed for this client. Multiple registries for one experiment
     // must all support its treatments, so restrictions can only become more conservative.
     private val supportedVariants = ConcurrentHashMap<String, Set<String>>()
@@ -111,6 +113,9 @@ class PrismClient @JvmOverloads constructor(
     fun trackPopulationConversion(userId: String, eventName: String): Boolean = local?.trackPopulationConversion(userId, eventName) ?: false
     fun flush(): Boolean = local?.flush() ?: true
     val pendingEventCount: Int get() = local?.pendingEventCount ?: 0
+    /** Local diagnostics are an immutable observation, not a network request or server health guarantee. */
+    val diagnostics: SdkDiagnostics get() = local?.diagnostics
+        ?: SdkDiagnostics(EvaluationMode.REMOTE, remoteClosed.get(), null, null, null)
     /** Rejected targeting definitions by experiment key; excludes rule text and user attributes. */
     val targetingConfigurationErrors: Map<String, String> get() = local?.targetingConfigurationErrors ?: emptyMap()
     /** Lifetime user/experiment dedup entries, retained after acknowledgement; zero in REMOTE mode. */
@@ -122,7 +127,7 @@ class PrismClient @JvmOverloads constructor(
     val populationExposureDedupRejectedCount: Long get() = local?.populationExposureDedupRejectedCount ?: 0
     override fun close() {
         // In LOCAL mode the winning close/shutdown hook owns transport teardown after its final flush.
-        if (local != null) local.close() else client.shutdownNow()
+        if (local != null) local.close() else if (remoteClosed.compareAndSet(false, true)) client.shutdownNow()
     }
 
     /** Looks up a prior exposure without assigning or recording a new exposure. */

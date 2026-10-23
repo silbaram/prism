@@ -72,6 +72,10 @@ class MySqlMetricIntegrityTest {
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/035_event_catalog.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/036_user_journeys.sql"))
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/037_saved_funnels.sql"))
+                        connection.createStatement().use { it.executeUpdate("INSERT INTO pipeline_outbox (id, kind, payload) VALUES ('historical', 'DEAD_LETTER', '{}')") }
+                        ScriptUtils.executeSqlScript(connection, ClassPathResource("migrations/038_pipeline_diagnostics_targeting.sql"))
+                        assertEquals(1L, scalar(connection, "SELECT COUNT(*) FROM pipeline_outbox WHERE id = 'historical' AND created_at IS NULL"))
+                        connection.createStatement().use { it.executeUpdate("DELETE FROM pipeline_outbox WHERE id = 'historical'") }
                         assertEquals(1L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft'"))
                         assertEquals(0L, scalar(connection, "SELECT configuration_locked FROM experiments WHERE experiment_key = 'exposed-draft '"))
                         assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM experiments WHERE experiment_key IN ('paused', 'ended') AND configuration_locked = TRUE"))
@@ -81,6 +85,8 @@ class MySqlMetricIntegrityTest {
                         ScriptUtils.executeSqlScript(connection, ClassPathResource("schema.sql"))
                     }
                     assertExactCollations(connection)
+                    assertEquals(1L, scalar(connection, "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pipeline_outbox' AND COLUMN_NAME = 'created_at' AND DATETIME_PRECISION = 6"))
+                    assertEquals(1L, scalar(connection, "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'targeting_attributes' AND COLUMN_NAME = 'attribute_name' AND COLLATION_NAME = 'utf8mb4_0900_bin'"))
                     assertEquals(2L, scalar(connection, "SELECT COUNT(*) FROM information_schema.STATISTICS " +
                         "WHERE TABLE_SCHEMA = DATABASE() AND INDEX_NAME IN ('idx_impression_journey', 'idx_conversion_journey') " +
                         "AND COLUMN_NAME = 'variant' AND SUB_PART = 191"))

@@ -169,6 +169,7 @@
                         기본 SDK는 데이터 규칙을 사용합니다. 예: <code>prism:v1:{"attribute":"country","op":"eq","value":"KR"}</code>
                         <br>Spring 스타터는 기존 SpEL 조건도 지원합니다. (예: age >= 20, country == 'KR')
                         <br>모든 규칙은 AND 조건으로 평가됩니다.
+                        <br><a th:href="@{/admin/targeting}">타기팅 속성 등록</a> 후 이름·자료형·연산자를 선택해 작성할 수 있습니다. AND·OR·NOT 그룹과 목록을 지원합니다.
                     </div>
 
                     <div id="targetingRulesContainer">
@@ -197,12 +198,21 @@
                                 <li><code>age >= 20</code> - 나이가 20세 이상</li>
                                 <li><code>country == 'KR'</code> - 국가가 한국</li>
                                 <li><code>age >= 20 && country == 'KR'</code> - 20세 이상이면서 한국</li>
-                                <li><code>appVersion > '1.0.0'</code> - 앱 버전이 1.0.0보다 높음</li>
+                                <li><code>prism:v1:{"attribute":"age","op":"gte","value":20}</code> - 숫자 비교 데이터 규칙</li>
                                 <li><code>premium == true</code> - 프리미엄 사용자</li>
                             </ul>
                         </div>
                     </div>
                 </div>
+
+                <section class="card card-body mb-3" th:if="${!locked}">
+                    <h3 class="h6">저장 전 타기팅 미리보기</h3>
+                    <label for="targetingSample" class="form-label">샘플 사용자 속성 (JSON)</label>
+                    <textarea id="targetingSample" class="form-control font-monospace mb-2" rows="3" maxlength="16000">{}</textarea>
+                    <button id="previewTargeting" type="button" class="btn btn-outline-primary">타기팅 확인</button>
+                    <p id="targetingPreviewResult" role="status" aria-live="polite" class="mt-2 mb-0"></p>
+                    <p class="form-text mb-0">입력 중인 규칙만 평가합니다. 저장된 실험의 상태·기간·참여율·레이어·홀드아웃과 예상 변형은 시뮬레이터에서 확인하세요. 노출·전환은 기록하지 않습니다.</p>
+                </section>
 
                 <div class="d-grid gap-2">
                     <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">저장하기</button>
@@ -360,6 +370,7 @@
         });
         </script>
         <script th:src="@{/js/event-picker.js}" th:data-suggestions-url="@{/admin/events/suggestions}" defer></script>
+        <script th:if="${!experiment.configurationLocked and experiment.status.name() == 'DRAFT'}" th:src="@{/js/targeting-editor.js}" th:data-targeting-attributes-url="@{/admin/targeting/attributes}" th:data-targeting-preview-url="@{/admin/targeting/preview}" defer></script>
     </div>
 </th:block>
 
