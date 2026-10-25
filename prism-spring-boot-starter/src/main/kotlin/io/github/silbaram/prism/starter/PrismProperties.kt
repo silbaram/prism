@@ -3,6 +3,7 @@ package io.github.silbaram.prism.starter
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
 import io.github.silbaram.prism.sdk.EvaluationMode
+import io.github.silbaram.prism.sdk.StaleConfigPolicy
 
 @ConfigurationProperties(prefix = "prism.client")
 data class PrismProperties(
@@ -22,7 +23,9 @@ data class PrismProperties(
     var apiKey: String? = null,
     var configStreaming: Boolean = false,
     var stickyAssignmentsDirectory: String? = null,
-    var flushTimeout: Duration = Duration.ofSeconds(5)
+    var flushTimeout: Duration = Duration.ofSeconds(5),
+    var maxConfigAge: Duration? = null,
+    var staleConfigPolicy: StaleConfigPolicy = StaleConfigPolicy.KEEP_LAST
 ) {
     override fun toString() = "PrismProperties(url=$url, evaluationMode=$evaluationMode, apiKey=<redacted>)"
 }

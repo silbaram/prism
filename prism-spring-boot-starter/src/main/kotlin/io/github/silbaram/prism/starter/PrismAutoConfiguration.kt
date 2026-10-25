@@ -56,6 +56,8 @@ class PrismAutoConfiguration(
                 apiKey = properties.apiKey,
                 configStreaming = properties.configStreaming,
                 targetingEvaluator = targetingEvaluator,
+                maxConfigAge = properties.maxConfigAge,
+                staleConfigPolicy = properties.staleConfigPolicy,
                 stickyAssignmentStore = properties.stickyAssignmentsDirectory?.let {
                     io.github.silbaram.prism.sdk.FileStickyAssignmentStore(java.nio.file.Path.of(it))
                 } ?: io.github.silbaram.prism.sdk.InMemoryStickyAssignmentStore()

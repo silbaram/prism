@@ -5,7 +5,8 @@ Prism은 무상태 트래픽 분배 엔진, 실험 관리 Admin, 설정·이벤�
 ## 주요 특징
 - **무상태 트래픽 분배**: 고성능 API로 사용자별 변형(variant) 할당
 - **실험 관리/Admin**: 이벤트 카탈로그·Java/Kotlin 적용 가이드·목표 및 이벤트별 CVR·순서형 퍼널·사용자 여정 제공
-- **Fail-safe SDK**: 설정 동기화 장애 시 마지막 정상 설정으로 평가하며, 설정이 없으면 기본 동작으로 폴백
+- **Fail-safe SDK**: 기본적으로 마지막 정상 설정을 유지하며, 선택적으로 최대 유지 시간을 넘긴 새 배정·노출 차단. [SDK 진단과 설정 신선도](docs/sdk-diagnostics.md) 제공
+- **수집 진단·타기팅 편집**: [수집 상태 연결과 사용법](docs/operations-targeting.md), 속성 카탈로그·조건 편집·실제 평가기 기반 미리보기 제공
 - **Spring 통합**: `@PrismExperiment` 어노테이션과 안전한 전환 추적 래퍼 제공
 
 ## 프로젝트 구조
@@ -96,6 +97,7 @@ SRM은 Pearson 카이제곱 검정으로 배정 비율을 확인하며 `p < 0.00
 | 035 | [035_event_catalog.sql](prism-infrastructure/src/main/resources/migrations/035_event_catalog.sql) | 이벤트 카탈로그·이벤트 이름 조회 인덱스 |
 | 036 | [036_user_journeys.sql](prism-infrastructure/src/main/resources/migrations/036_user_journeys.sql) | 사용자·변형·시각별 여정 조회 인덱스 |
 | 037 | [037_saved_funnels.sql](prism-infrastructure/src/main/resources/migrations/037_saved_funnels.sql) | 실험별 저장된 퍼널과 수정 충돌 방지 버전 |
+| 038 | [038_pipeline_diagnostics_targeting.sql](prism-infrastructure/src/main/resources/migrations/038_pipeline_diagnostics_targeting.sql) | outbox 생성 시각과 타기팅 속성 카탈로그 |
 
 DDL은 암묵적으로 커밋됩니다. 롤백은 쓰기를 중단한 상태에서 백업 복원과 이전 애플리케이션 배포를 함께 수행합니다. 027의 `log_conversion_unattributed_archive`와 기존 영수증은 자동 삭제하지 않습니다. 과거 전환의 노출 참조나 실험 목표를 임의로 채우지 않으며, 로그 정리 시 전환의 노출 외래키와 중복 제거 보존 기간을 함께 고려합니다.
 

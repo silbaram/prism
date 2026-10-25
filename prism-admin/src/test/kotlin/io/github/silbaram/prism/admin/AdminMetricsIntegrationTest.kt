@@ -54,6 +54,7 @@ class AdminMetricsIntegrationTest {
     @Autowired lateinit var layers: ExperimentLayerRepository
     @Autowired lateinit var populationExposures: PopulationExposureRepository
     @Autowired lateinit var populationConversions: PopulationConversionRepository
+    @Autowired lateinit var targetingAttributes: TargetingAttributeRepository
     private val http = HttpClient.newBuilder().cookieHandler(java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL)).build()
     private fun uri(path: String) = URI.create("http://localhost:${environment.getProperty("local.server.port")}$path")
     private fun get(path: String): String {
@@ -75,6 +76,7 @@ class AdminMetricsIntegrationTest {
     }
     @BeforeEach
     fun clean() {
+        targetingAttributes.deleteAll()
         definitions.deleteAll()
         conversions.deleteAll(); impressions.deleteAll(); experiments.deleteAll(); changes.deleteAll()
         populationConversions.deleteAll(); populationExposures.deleteAll(); layers.deleteAll()
@@ -835,6 +837,61 @@ class AdminMetricsIntegrationTest {
     }
 
     @Test
+    fun `targeting catalog preserves registered types and preview evaluates unsaved precise rules without writes`() {
+        assertEquals(302, post("/admin/targeting/attributes", mapOf("name" to "age", "type" to "NUMBER", "description" to "나이")).statusCode())
+        assertTrue(get("/admin/targeting").contains("나이"))
+        assertEquals(400, post("/admin/targeting/attributes", mapOf("name" to "age", "type" to "STRING")).statusCode())
+        assertEquals(TargetingAttributeType.NUMBER, targetingAttributes.findById("age").orElseThrow().type)
+        assertTrue(get("/admin/experiments/new").contains("저장 전 타기팅 미리보기"))
+        fun preview(rule: String, attrs: String): HttpResponse<String> {
+            val json = com.fasterxml.jackson.module.kotlin.jacksonObjectMapper().writeValueAsString(mapOf("expressions" to listOf(rule), "attributes" to attrs))
+            return http.send(HttpRequest.newBuilder(uri("/admin/targeting/preview")).header("Content-Type", "application/json")
+                .header("X-CSRF-TOKEN", csrf(get("/admin/experiments/new"))).POST(HttpRequest.BodyPublishers.ofString(json)).build(), HttpResponse.BodyHandlers.ofString())
+        }
+        val rule = """prism:v1:{"all":[{"attribute":"id","op":"eq","value":9007199254740993},{"not":{"attribute":"country","op":"eq","value":"US"}}]}"""
+        val matched = preview(rule, """{"id":9007199254740993,"country":"KR"}""")
+        assertEquals(200, matched.statusCode(), matched.body())
+        assertTrue(matched.body().contains("\"matched\":true"))
+        assertTrue(preview(rule, """{"id":9007199254740992,"country":"KR"}""").body().contains("\"matched\":false"))
+        assertTrue(preview(rule, """{"id":"9007199254740993"}""").body().contains("\"matched\":false"))
+        assertTrue(preview("age / 10 == 2", """{"age":29}""").body().contains("\"matched\":true"))
+        assertEquals(400, preview("prism:v2:{}", "{}").statusCode())
+        assertEquals(400, preview(rule, """{"id":1,"id":2}""").statusCode())
+        assertEquals(0L, experiments.count())
+        assertEquals(0L, impressions.count())
+        assertEquals(0L, conversions.count())
+    }
+
+    @Test
+    fun `simulator distinguishes actual status from design preview and applies targeting attributes`() {
+        val experiment = service.createExperiment(ExperimentCreateDto("targeting-preview", "", "purchase", listOf(VariantDto("A", 100)),
+            targetingRules = listOf(TargetingRuleDto("""prism:v1:{"all":[{"attribute":"age","op":"gte","value":20},{"attribute":"country","op":"eq","value":"KR"}]}"""))))
+        val fields = mapOf("experimentId" to experiment.id.toString(), "userId" to "u", "attributes" to """{"age":25,"country":"KR"}""")
+        val actual = post("/admin/simulator/test", fields)
+        assertEquals(200, actual.statusCode(), actual.body())
+        assertTrue(actual.body().contains("실험 상태가 ACTIVE가 아닙니다"))
+        assertFalse(actual.body().contains("배정 완료!"))
+        val design = post("/admin/simulator/test", fields + ("previewMode" to "DRAFT"))
+        assertTrue(design.body().contains("배정 완료!"), design.body())
+        val mismatch = post("/admin/simulator/test", fields + mapOf("previewMode" to "DRAFT", "attributes" to """{"age":"25","country":"KR"}"""))
+        assertTrue(mismatch.body().contains("타기팅 조건에 일치하지 않습니다"))
+        val invalid = post("/admin/simulator/test", fields + ("attributes" to "[]"))
+        assertTrue(invalid.body().contains("샘플 속성은 최대 100개 필드의 JSON 객체"))
+        assertFalse(invalid.body().contains("배정 완료!"))
+        assertEquals(0L, impressions.count())
+        assertEquals(0L, conversions.count())
+    }
+
+    @Test
+    fun `pipeline page shows unconfigured as unknown and never fabricates healthy counts`() {
+        val page = get("/admin/pipeline")
+        assertTrue(page.contains("<h2>수집 상태</h2>"))
+        assertTrue(page.contains("미설정"))
+        assertTrue(page.contains("미확인"))
+        assertFalse(page.contains("API 모드:"))
+    }
+
+    @Test
     fun `simulator displays nonparticipation for excluded users and closed periods without logging exposure`() {
         val zero = service.createExperiment(ExperimentCreateDto("zero", "", "purchase",
             listOf(VariantDto("A", 100)), trafficAllocation = 0))
@@ -843,12 +900,12 @@ class AdminMetricsIntegrationTest {
         val included = service.createExperiment(ExperimentCreateDto("included", "", "purchase", listOf(VariantDto("A", 100))))
         assertFalse(get("/admin/simulator").contains("<strong>미참여</strong>"))
         for (experiment in listOf(zero, expired)) {
-            val response = post("/admin/simulator/test", mapOf("experimentId" to experiment.id.toString(), "userId" to "u"))
+            val response = post("/admin/simulator/test", mapOf("experimentId" to experiment.id.toString(), "userId" to "u", "previewMode" to "DRAFT"))
             assertEquals(200, response.statusCode(), response.body())
             assertTrue(response.body().contains("<strong>미참여</strong>"))
             assertFalse(response.body().contains("배정 완료!"))
         }
-        val assigned = post("/admin/simulator/test", mapOf("experimentId" to included.id.toString(), "userId" to "u"))
+        val assigned = post("/admin/simulator/test", mapOf("experimentId" to included.id.toString(), "userId" to "u", "previewMode" to "DRAFT"))
         assertEquals(200, assigned.statusCode(), assigned.body())
         assertTrue(assigned.body().contains("배정 완료!"))
         assertFalse(assigned.body().contains("<strong>미참여</strong>"))
@@ -961,6 +1018,10 @@ class AdminMetricsIntegrationTest {
         assertFalse(list.body().contains("새 실험 만들기"))
         assertEquals(403, request("/admin/experiments/new").statusCode())
         assertEquals(200, request("/admin/population").statusCode())
+        assertEquals(200, request("/admin/pipeline").statusCode())
+        assertEquals(200, request("/admin/targeting").statusCode())
+        assertFalse(request("/admin/targeting").body().contains("id=\"attrName\""))
+        assertEquals(403, postRaw(anonymous, "/admin/targeting/attributes", mapOf("name" to "forbidden", "type" to "STRING", "_csrf" to csrf(list.body()))).statusCode())
         assertEquals(403, postRaw(anonymous, "/admin/population/holdout", mapOf("key" to "forbidden", "basisPoints" to "500", "_csrf" to csrf(list.body()))).statusCode())
         assertEquals(403, postRaw(anonymous, "/admin/experiments", mapOf("_csrf" to csrf(list.body()))).statusCode())
         assertEquals(403, postRaw(http, "/admin/experiments", emptyMap()).statusCode())

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <th:block th:replace="~{layout/default :: layout(~{::div})}">
-    <div>
+    <div class="container">
         <div class="mb-4">
             <h2>실험 시뮬레이터</h2>
             <p class="text-muted">특정 User ID가 어떤 그룹(Variant)에 배정되는지 테스트할 수 있습니다.</p>
@@ -35,14 +35,32 @@
                         <div class="col-md-2 d-flex align-items-end">
                             <button type="submit" class="btn btn-primary w-100">확인</button>
                         </div>
+                        <div class="col-md-4">
+                            <label for="previewMode" class="form-label">점검 방식</label>
+                            <select id="previewMode" name="previewMode" class="form-select">
+                                <option value="CURRENT" th:selected="${previewMode != 'DRAFT'}">현재 상태 점검 (ACTIVE만 참여)</option>
+                                <option value="DRAFT" th:selected="${previewMode == 'DRAFT'}">설계 미리보기 (상태만 제외)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-8">
+                            <label for="sampleAttributes" class="form-label">샘플 사용자 속성 (JSON)</label>
+                            <textarea id="sampleAttributes" name="attributes" class="form-control font-monospace" rows="4" maxlength="16000" th:text="${attributes == null ? '{}' : attributes}" placeholder='{"age":25,"country":"KR","premium":true}'></textarea>
+                            <div class="form-text">문자열·숫자·불리언·null을 지원합니다. 속성 누락과 자료형 불일치는 실제 평가기와 동일하게 판정합니다.</div>
+                        </div>
                     </div>
                 </form>
             </div>
         </div>
 
         <!-- 결과 표시 -->
+        <div th:if="${simulationError != null}" class="alert alert-danger" th:text="${simulationError}"></div>
+        <div th:if="${simulation != null}" class="card card-body mb-3">
+            <p class="mb-1">타기팅: <strong th:text="${simulation.targetingMatched ? '일치' : '불일치'}"></strong> · <span th:text="${simulation.reason}"></span></p>
+            <p class="mb-1" th:each="match, stat : ${simulation.ruleMatches}">규칙 <span th:text="${stat.count}"></span>: <span th:text="${match ? '일치' : '불일치'}"></span></p>
+            <p class="mb-0 text-muted" th:if="${simulation.stickyBucketing}">배정 유지 사용 중: 저장된 최초 배정은 조회하지 않으므로 실제 유지 변형과 다를 수 있습니다.</p>
+        </div>
         <div th:if="${simulationCompleted == true and result == null}" class="alert alert-info">
-            <strong>미참여</strong>: 실험 기간, 참여 비율, 레이어 범위 또는 전역 홀드아웃 조건에 해당합니다.
+            <strong>미참여</strong>: <span th:text="${simulation.reason}"></span>
         </div>
         <div th:if="${result != null}" class="card shadow-sm border-success">
             <div class="card-header bg-success text-white">
@@ -71,7 +89,7 @@
                         <li>참여 비율, 실험 기간, 레이어와 전역 홀드아웃을 확인합니다. 저장된 최초 배정은 조회하지 않는 미리보기입니다.</li>
                         <li>참여 사용자는 동일한 User ID와 변형 설정에서 같은 그룹에 배정됩니다.</li>
                         <li>User ID를 변경하면 다른 그룹에 배정될 수 있습니다.</li>
-                        <li>초안도 미리 확인할 수 있습니다. 실험 상태와 사용자 속성에 따른 타겟팅은 이 화면에서 평가하지 않습니다.</li>
+                        <li>실제 코어 평가기로 사용자 속성과 타기팅 규칙을 확인합니다. 현재 상태 점검은 ACTIVE만 참여하며, 설계 미리보기는 상태만 제외하고 기간 등 나머지 조건을 적용합니다.</li>
                         <li>시뮬레이션은 노출·전환을 기록하지 않습니다.</li>
                         <li>각 Variant의 가중치(weight)에 따라 배정 확률이 결정됩니다.</li>
                     </ul>

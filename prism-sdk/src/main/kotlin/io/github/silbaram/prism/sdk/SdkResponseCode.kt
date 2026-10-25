@@ -4,5 +4,6 @@ package io.github.silbaram.prism.sdk
 enum class SdkResponseCode(val code: String) {
     CLIENT_ERROR("9999"),
     EXPOSURE_DEDUP_CAPACITY_REACHED("9998"),
-    TARGETING_CONFIGURATION_REJECTED("9997")
+    TARGETING_CONFIGURATION_REJECTED("9997"),
+    STALE_CONFIGURATION("9996")
 }

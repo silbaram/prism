@@ -159,7 +159,14 @@ CREATE TABLE IF NOT EXISTS pipeline_inbox (
 CREATE TABLE IF NOT EXISTS pipeline_outbox (
     id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
     kind VARCHAR(16) NOT NULL,
-    payload LONGTEXT NOT NULL
+    payload LONGTEXT NOT NULL,
+    created_at TIMESTAMP(6) NULL,
+    INDEX idx_pipeline_outbox_created (created_at)
+);
+CREATE TABLE IF NOT EXISTS targeting_attributes (
+    attribute_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,
+    value_type VARCHAR(16) NOT NULL,
+    description VARCHAR(1000) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS population_exposures (
     event_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin PRIMARY KEY,

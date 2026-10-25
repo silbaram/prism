@@ -22,6 +22,22 @@ class PrismAutoConfigurationTest {
         .withConfiguration(AutoConfigurations.of(PrismAutoConfiguration::class.java))
 
     @Test
+    fun `freshness policy binds into the SDK diagnostics and invalid blocking policy fails startup`() {
+        contextRunner.withPropertyValues("prism.client.url=http://127.0.0.1:1",
+            "prism.client.initialization-timeout=0s", "prism.client.max-config-age=5m",
+            "prism.client.stale-config-policy=BLOCK_NEW_ASSIGNMENTS").run { context ->
+            assertThat(context).hasNotFailed()
+            val config = context.getBean(PrismClient::class.java).diagnostics.configuration!!
+            assertThat(config.maxAge).isEqualTo(Duration.ofMinutes(5))
+            assertThat(config.stalePolicy).isEqualTo(io.github.silbaram.prism.sdk.StaleConfigPolicy.BLOCK_NEW_ASSIGNMENTS)
+        }
+        contextRunner.withPropertyValues("prism.client.url=http://127.0.0.1:1",
+            "prism.client.stale-config-policy=BLOCK_NEW_ASSIGNMENTS").run { context ->
+            assertThat(context).hasFailed()
+        }
+    }
+
+    @Test
     fun `custom targeting bean replaces the default evaluator in the SDK`() {
         val evaluator = object : TargetingEvaluator {
             override fun validateSyntax(condition: String) { require(condition == "custom-rule") }

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:replace="~{layout/default :: layout(~{::div})}">
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-3"><h2>수집 상태</h2><a class="btn btn-outline-primary" th:href="@{/admin/pipeline}">새로고침</a></div>
+    <p class="text-muted">API가 관측한 DB 처리 현황입니다. Kafka 접수 응답(QUEUED)은 최종 DB 반영 완료와 구분합니다.</p>
+    <div th:if="${observation.state.name() == 'NOT_CONFIGURED'}" class="alert alert-info">미설정: 진단 API 연결 주소와 전용 모니터링 키를 설정하세요. 연결 전 수집 상태는 미확인입니다.</div>
+    <div th:if="${observation.state.name() == 'UNAVAILABLE'}" class="alert alert-warning">조회 실패: 현재 수집 상태는 미확인입니다. API 연결과 모니터링 키를 확인하세요.</div>
+    <p th:if="${observation.lastSuccessAt != null}" class="text-muted">마지막 조회 성공: <span th:text="${observation.lastSuccessAt}"></span> (UTC)</p>
+    <th:block th:if="${observation.snapshot != null}" th:with="s=${observation.snapshot}">
+        <p>관측 시각: <strong th:text="${s.observedAt}"></strong> (UTC) · API 모드: <strong th:text="${s.mode}"></strong> · 이 API의 소비 작업 설정: <strong th:text="${s.consumerEnabled ? '사용' : '사용 안 함'}"></strong></p>
+        <div th:if="${s.mode == 'DIRECT'}" class="alert alert-info">DIRECT 모드는 요청 중 DB에 반영합니다. 아래 대기열은 기존 Kafka 처리 데이터가 남아 있는 경우에도 표시됩니다.</div>
+        <div th:if="${s.mode == 'KAFKA' and !s.consumerEnabled}" class="alert alert-info">이 API는 Kafka 접수만 수행합니다. 별도 소비 작업이 실행 중인지 확인하세요.</div>
+        <div class="row g-3">
+            <div class="col-lg-6"><section class="card h-100"><div class="card-body"><h3 class="h5">DB 반영 대기 (inbox)</h3>
+                <dl class="row mb-0">
+                    <dt class="col-8">처리 대기</dt><dd class="col-4" th:text="${s.inbox.pendingCount}"></dd>
+                    <dt class="col-8">현재 처리 시각 도래</dt><dd class="col-4" th:text="${s.inbox.dueCount}"></dd>
+                    <dt class="col-8">처리 시도 이력이 있는 대기</dt><dd class="col-4" th:text="${s.inbox.attemptedPendingCount}"></dd>
+                    <dt class="col-8">가장 오래된 대기 시간 (초)</dt><dd class="col-4" th:text="${s.inbox.oldestPendingAgeSeconds == null ? '대기 없음' : s.inbox.oldestPendingAgeSeconds}"></dd>
+                    <dt class="col-8">처리 완료 (보존 중)</dt><dd class="col-4" th:text="${s.inbox.completedCount}"></dd>
+                    <dt class="col-8">영구 거절 (보존 중)</dt><dd class="col-4" th:text="${s.inbox.rejectedCount}"></dd>
+                </dl>
+            </div></section></div>
+            <div class="col-lg-6"><section class="card h-100"><div class="card-body"><h3 class="h5">외부 전송 대기 (outbox)</h3>
+                <dl class="row mb-0">
+                    <dt class="col-8">전체 전송 대기</dt><dd class="col-4" th:text="${s.outbox.pendingCount}"></dd>
+                    <dt class="col-8">Warehouse 전송 대기</dt><dd class="col-4" th:text="${s.outbox.warehousePendingCount}"></dd>
+                    <dt class="col-8">DLQ 전송 대기</dt><dd class="col-4" th:text="${s.outbox.deadLetterPendingCount}"></dd>
+                    <dt class="col-8">시각이 기록된 최장 대기 (초)</dt><dd class="col-4" th:text="${s.outbox.oldestKnownPendingAgeSeconds == null ? '기록 없음' : s.outbox.oldestKnownPendingAgeSeconds}"></dd>
+                    <dt class="col-8">생성 시각 미기록</dt><dd class="col-4" th:text="${s.outbox.unknownAgeCount}"></dd>
+                </dl>
+            </div></section></div>
+        </div>
+    </th:block>
+    <p class="text-muted mt-3">처리 시도에는 최초 처리와 진행 중인 작업도 포함됩니다. 완료·거절 수는 보존 중인 inbox 행 수이며 전체 접수 누계가 아닙니다. DLQ는 아직 전송되지 않은 건수입니다. Kafka 브로커 lag, 이미 전송된 DLQ, SDK별 연결 상태는 이 화면의 관측 범위에 포함되지 않습니다.</p>
+</div>
+</th:block>
+</html>

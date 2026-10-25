@@ -21,5 +21,7 @@ class PipelineInboxEntity(
 class PipelineOutboxEntity(
     @Id @Column(length = 64) val id: String,
     @Column(nullable = false, length = 16) val kind: String,
-    @Column(nullable = false, columnDefinition = "LONGTEXT") val payload: String
+    @Column(nullable = false, columnDefinition = "LONGTEXT") val payload: String,
+    @Convert(converter = UtcLogTimestampConverter::class) @Column(name = "created_at")
+    val createdAt: LocalDateTime? = LocalDateTime.now(ZoneOffset.UTC)
 )
