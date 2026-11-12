@@ -1,10 +1,18 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Prism Admin</title>
+</head>
+<body>
 <th:block th:replace="~{layout/default :: layout(~{::div})}">
-    <div class="card p-4">
-        <h2 th:text="${errorStatus}">요청 오류</h2>
-        <p th:text="${errorMessage}">요청을 처리할 수 없습니다.</p>
-        <a href="/admin/experiments">실험 목록으로 돌아가기</a>
+    <div>
+        <div class="card p-3 shadow-sm">
+            <h3 class="mb-2" th:text="${errorStatus}">요청 오류</h3>
+            <p class="mb-2 text-secondary" th:text="${errorMessage}">요청을 처리할 수 없습니다.</p>
+            <a class="btn btn-outline-secondary btn-sm" href="/admin/experiments">실험 목록으로 돌아가기</a>
+        </div>
     </div>
 </th:block>
+</body>
 </html>

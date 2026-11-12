@@ -13,8 +13,8 @@
                 <form method="post" th:action="@{/admin/simulator/test}">
                     <div class="row g-3">
                         <div class="col-md-5">
-                            <label class="form-label fw-bold">실험 선택</label>
-                            <select name="experimentId" class="form-select" required
+                            <label class="form-label fw-bold" for="simulatorExperiment">실험 선택</label>
+                            <select id="simulatorExperiment" name="experimentId" class="form-select" required
                                     th:attr="data-selected=${selectedExperimentId}">
                                 <option value="">실험을 선택하세요</option>
                                 <option th:each="exp : ${experiments}"
@@ -26,8 +26,8 @@
                             </select>
                         </div>
                         <div class="col-md-5">
-                            <label class="form-label fw-bold">User ID</label>
-                            <input type="text" name="userId" class="form-control"
+                            <label class="form-label fw-bold" for="simUserId">User ID</label>
+                            <input id="simUserId" type="text" name="userId" class="form-control"
                                    th:value="${userId}"
                                    placeholder="예: user_12345"
                                    required>
@@ -51,9 +51,9 @@
             <div class="card-body">
                 <div class="alert alert-success mb-0">
                     <h4 class="alert-heading">배정 완료!</h4>
-                    <p class="mb-0" style="font-size: 1.1rem;">
+                    <p class="mb-0">
                         User <strong th:text="${userId}">user_12345</strong>님은
-                        <span class="badge bg-primary" style="font-size: 1rem;" th:text="${result}">variant_a</span>
+                        <span class="badge bg-primary" th:text="${result}">variant_a</span>
                         그룹에 배정됩니다.
                     </p>
                 </div>

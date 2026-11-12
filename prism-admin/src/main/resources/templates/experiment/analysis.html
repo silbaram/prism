@@ -31,21 +31,54 @@
                 미확정 <strong th:text="${report.pendingUsers}"></strong>명 · 무효 <strong th:text="${report.invalidUsers}"></strong>명</p>
         </div>
         <div class="alert" th:classappend="${report.available ? 'alert-info' : 'alert-warning'}" th:text="${report.message}"></div>
+        <p class="text-secondary small mb-2" th:if="${not #lists.isEmpty(report.groups)}">집단별 전환율 요약 — 막대 상한 10%(초과 시 가득 찬 막대로 표시). 사용자 수·전환·신뢰구간 등 수치는 아래 표가 정본입니다.</p>
+        <div class="stat-chart" aria-hidden="true" th:if="${not #lists.isEmpty(report.groups)}">
+            <div class="stat-chart-row" th:each="group : ${report.groups}">
+                <div class="stat-chart-label">
+                    <strong th:text="${group.variant}"></strong>
+                    <span class="stat-chart-value" th:if="${group.rate != null}" th:text="${#numbers.formatDecimal(group.rate, 1, 2)}%"></span>
+                    <span class="stat-chart-value" th:if="${group.rate == null}">—</span>
+                </div>
+                <div class="stat-chart-track">
+                    <div class="stat-chart-bar" th:if="${group.rate != null}" th:style="|width:${group.rate * 10}%|"></div>
+                </div>
+            </div>
+        </div>
         <h3>관측 완료 사용자</h3>
-        <table class="table"><thead><tr><th>변형</th><th>사용자</th><th>전환 사용자</th><th>전환율</th><th>유효 사전 지표</th></tr></thead>
+        <div class="table-responsive">
+        <table class="table"><thead><tr><th scope="col">변형</th><th scope="col">사용자</th><th scope="col">전환 사용자</th><th scope="col">전환율</th><th scope="col">유효 사전 지표</th></tr></thead>
             <tbody><tr th:each="group : ${report.groups}"><td th:text="${group.variant}"></td><td th:text="${group.users}"></td><td th:text="${group.conversions}"></td>
                 <td th:text="${group.rate == null ? '—' : #numbers.formatDecimal(group.rate * 100, 1, 3) + '%'}"></td><td th:text="${group.baselineUsers}"></td></tr></tbody></table>
+        </div>
         <h3>Sequential testing</h3>
         <p>반복 조회를 고려한 95% 동시 신뢰구간입니다. 모든 변형과 관측 횟수를 보정하므로 구간이 보수적으로 넓습니다.
             사용자 간 독립성 및 시간에 걸쳐 안정적인 전환율을 가정합니다. 자동 승자는 선택하지 않습니다.</p>
-        <table class="table"><thead><tr><th>대조군 대비 변형</th><th>전환율 차이 (pp)</th><th>반복 관측 보정 구간 (pp)</th></tr></thead>
+        <div class="table-responsive">
+        <table class="table"><thead><tr><th scope="col">대조군 대비 변형</th><th scope="col">전환율 차이 (pp)</th><th scope="col">반복 관측 보정 구간 (pp)</th></tr></thead>
             <tbody><tr th:each="comparison : ${report.comparisons}"><td th:text="${comparison.variant}"></td>
                 <td th:text="${comparison.difference == null ? '—' : #numbers.formatDecimal(comparison.difference * 100, 1, 3)}"></td>
                 <td th:text="${comparison.sequential == null ? '분석 불가' : #numbers.formatDecimal(comparison.sequential.lower * 100, 1, 3) + ' ~ ' + #numbers.formatDecimal(comparison.sequential.upper * 100, 1, 3)}"></td></tr></tbody></table>
+        </div>
         <h3>Bayesian 분석</h3>
         <p>각 변형에 독립적인 Beta(1,1) 사전분포를 사용합니다. 대조군보다 높을 사후확률은 반복 검정의 위양성률 보장이 아닙니다.
             32,768회 재현 가능한 표본 추출을 사용하며 확률의 최대 Monte Carlo 표준오차는 약 0.28pp입니다.</p>
-        <table class="table"><thead><tr><th>변형</th><th>대조군보다 높을 확률</th><th>사후 평균 차이 (pp)</th><th>차이의 95% 사후 구간 (pp)</th><th>선택 시 기대 손실 (pp)</th></tr></thead>
+        <p class="text-secondary small mb-2" th:if="${not #lists.isEmpty(report.comparisons)}">대조군 대비 요약 — 확률은 0–100% 스케일(막대), 차이는 pp 양수 = 변형 우세. 수치는 아래 표가 정본입니다.</p>
+        <div class="stat-chart" aria-hidden="true" th:if="${not #lists.isEmpty(report.comparisons)}">
+            <div class="stat-chart-row" th:each="comparison : ${report.comparisons}">
+                <div class="stat-chart-label">
+                    <strong th:text="${comparison.variant}"></strong>
+                    <span class="stat-chart-value" th:if="${comparison.bayesian != null}"
+                          th:text="${#numbers.formatDecimal(comparison.bayesian.probabilityBetter * 100, 1, 2)}%"></span>
+                    <span class="stat-chart-value" th:if="${comparison.bayesian == null}">분석 불가</span>
+                </div>
+                <div class="stat-chart-track">
+                    <div class="stat-chart-bar" th:if="${comparison.bayesian != null}"
+                         th:style="|width:${comparison.bayesian.probabilityBetter * 100}%|"></div>
+                </div>
+            </div>
+        </div>
+        <div class="table-responsive">
+        <table class="table"><thead><tr><th scope="col">변형</th><th scope="col">대조군보다 높을 확률</th><th scope="col">사후 평균 차이 (pp)</th><th scope="col">차이의 95% 사후 구간 (pp)</th><th scope="col">선택 시 기대 손실 (pp)</th></tr></thead>
             <tbody><tr th:each="comparison : ${report.comparisons}"><td th:text="${comparison.variant}"></td>
                 <th:block th:if="${comparison.bayesian != null}">
                     <td th:text="${#numbers.formatDecimal(comparison.bayesian.probabilityBetter * 100, 1, 2) + '%'}"></td>
@@ -53,6 +86,7 @@
                     <td th:text="${#numbers.formatDecimal(comparison.bayesian.interval.lower * 100, 1, 3) + ' ~ ' + #numbers.formatDecimal(comparison.bayesian.interval.upper * 100, 1, 3)}"></td>
                     <td th:text="${#numbers.formatDecimal(comparison.bayesian.expectedLoss * 100, 1, 3)}"></td>
                 </th:block><td th:if="${comparison.bayesian == null}" colspan="4">분석 불가 또는 표본 없음</td></tr></tbody></table>
+        </div>
         <h3>CUPED</h3>
         <p th:if="${!report.plan.cupedEnabled}">이 실험은 CUPED를 사용하지 않습니다.</p>
         <th:block th:if="${report.plan.cupedEnabled}">
@@ -68,11 +102,30 @@
         </th:block>
         <h3>세그먼트별 분석</h3>
         <p>최초 노출 때 수집한 사전 속성으로 나눈 기술 통계입니다. 집단별 차이는 탐색용이며 유의성·인과 효과를 선언하지 않습니다.</p>
-        <table class="table"><thead><tr><th>속성</th><th>집단</th><th>변형</th><th>사용자</th><th>전환 사용자</th><th>전환율</th><th>집단 내 대조군 대비 (pp)</th></tr></thead>
+        <p class="text-secondary small mb-2" th:if="${not #lists.isEmpty(report.segments)}">집단별 전환율 요약 — 막대 상한 10%(초과 시 가득 찬 막대), 미등록/미수집은 별도 집단. 수치·대조군 대비 차이는 아래 표가 정본입니다.</p>
+        <div class="stat-chart" aria-hidden="true" th:if="${not #lists.isEmpty(report.segments)}">
+            <div class="stat-chart-row" th:each="segment : ${report.segments}">
+                <div class="stat-chart-label">
+                    <strong th:text="${segment.key}"></strong>
+                    <span class="stat-chart-value" th:if="${segment.value != null}" th:text="${segment.key + ' = ' + segment.value}"></span>
+                    <span class="stat-chart-value" th:if="${segment.value == null}">(미등록·미수집)</span>
+                    <span class="stat-chart-value" th:if="${segment.group.rate != null}"
+                          th:text="${#numbers.formatDecimal(segment.group.rate, 1, 2)}%"></span>
+                    <span class="stat-chart-value" th:if="${segment.group.rate == null}">—</span>
+                </div>
+                <div class="stat-chart-track">
+                    <div class="stat-chart-bar" th:if="${segment.group.rate != null}"
+                         th:style="|width:${segment.group.rate * 10}%|"></div>
+                </div>
+            </div>
+        </div>
+        <div class="table-responsive">
+        <table class="table"><thead><tr><th scope="col">속성</th><th scope="col">집단</th><th scope="col">변형</th><th scope="col">사용자</th><th scope="col">전환 사용자</th><th scope="col">전환율</th><th scope="col">집단 내 대조군 대비 (pp)</th></tr></thead>
             <tbody><tr th:each="segment : ${report.segments}"><td th:text="${segment.key}"></td><td th:text="${segment.value == null ? '(미수집·미등록)' : segment.value}"></td>
                 <td th:text="${segment.group.variant}"></td><td th:text="${segment.group.users}"></td><td th:text="${segment.group.conversions}"></td>
                 <td th:text="${segment.group.rate == null ? '—' : #numbers.formatDecimal(segment.group.rate * 100, 1, 3) + '%'}"></td>
                 <td th:text="${segment.difference == null ? '—' : #numbers.formatDecimal(segment.difference * 100, 1, 3)}"></td></tr></tbody></table>
+        </div>
     </th:block>
 </div>
 </th:block>

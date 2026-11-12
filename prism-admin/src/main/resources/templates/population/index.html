@@ -28,11 +28,15 @@
         <h3>전체 사용자 집단 지표</h3>
         <p>SDK에서 전체 사용자에게 집단 노출을 기록한 뒤 전환을 기록하세요. 개별 실험에 배정된 사용자만 기록하면 비교가 편향됩니다. 아래는 고유 사용자 수이며 유의성·승자 판정을 제공하지 않습니다.</p>
         <ul><li th:each="cohort : ${cohortUsers}"><span th:text="${cohort[0]}"></span>: <span th:text="${cohort[1]}"></span>명 노출</li></ul>
-        <table class="table"><thead><tr><th>이벤트</th><th>집단</th><th>전환 사용자</th></tr></thead>
+        <div class="table-responsive">
+        <table class="table"><thead><tr><th scope="col">이벤트</th><th scope="col">집단</th><th scope="col">전환 사용자</th></tr></thead>
             <tbody><tr th:each="outcome : ${cohortOutcomes}"><td th:text="${outcome[0]}"></td><td th:text="${outcome[1]}"></td><td th:text="${outcome[2]}"></td></tr></tbody></table>
+        </div>
         <h3>변경 이력</h3>
-        <table class="table"><thead><tr><th>작업</th><th>수행자</th><th>내용</th></tr></thead>
+        <div class="table-responsive">
+        <table class="table"><thead><tr><th scope="col">작업</th><th scope="col">수행자</th><th scope="col">내용</th></tr></thead>
             <tbody><tr th:each="change : ${changes}"><td th:text="${change.action}"></td><td th:text="${change.actor}"></td><td><code th:text="${change.afterSnapshot}"></code></td></tr></tbody></table>
+        </div>
     </div>
 </th:block>
 </html>

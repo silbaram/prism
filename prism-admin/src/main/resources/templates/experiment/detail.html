@@ -7,6 +7,10 @@
             <h2>실험 상세 정보</h2>
             <a href="/admin/experiments" class="btn btn-outline-secondary">목록으로</a>
         </div>
+        <div class="alert alert-info" th:if="${experiment.configurationLocked}">
+            <strong>설정 잠김</strong>
+            <p class="mb-0 mt-1">실험 키·목표 이벤트·변형·타기팅은 변경할 수 없습니다. 설명·진행 상태·참여 비율 확대만 가능하며, 새 설정은 새 실험으로 만드세요.</p>
+        </div>
 
         <div class="row">
             <!-- 좌측: 실험 기본 정보 -->
@@ -82,20 +86,34 @@
                         </div>
                         <p class="text-muted small">CVR = 목표 이벤트 발생 사용자 / 노출 사용자. 사용자별로 각 변형에서 한 번씩 집계합니다.
                             95% 신뢰구간은 각 변형의 Wilson 구간입니다. 자동 승자 판정은 제공하지 않습니다.</p>
+                        <p class="text-secondary small mb-2" th:if="${stats.goalEventName != null and !#lists.isEmpty(stats.stats)}">변형별 CVR 요약 — 막대 상한 10%(초과 시 가득 찬 막대로 표시). 수치와 95% 신뢰구간은 아래 표가 정본입니다.</p>
+                        <div class="stat-chart" aria-hidden="true" th:if="${stats.goalEventName != null and !#lists.isEmpty(stats.stats)}">
+                            <div class="stat-chart-row" th:each="stat : ${stats.stats}">
+                                <div class="stat-chart-label">
+                                    <strong th:text="${stat.variant}"></strong>
+                                    <span class="stat-chart-value" th:if="${stat.cvr != null}" th:text="${#numbers.formatDecimal(stat.cvr, 1, 2)}%"></span>
+                                    <span class="stat-chart-value" th:if="${stat.cvr == null}">—</span>
+                                </div>
+                                <div class="stat-chart-track">
+                                    <div class="stat-chart-bar" th:if="${stat.cvr != null}" th:style="|width:${stat.cvr * 10}%|"></div>
+                                </div>
+                            </div>
+                        </div>
                         <div class="alert" th:classappend="${stats.srm.status.name() == 'PASS' ? 'alert-success' : 'alert-warning'}">
                             <strong th:text="${'SRM · ' + stats.srm.status}">SRM</strong>
                             <p class="mb-1" th:text="${stats.srm.message}"></p>
                             <small th:if="${stats.srm.pValue != null}"
                                    th:text="${'p = ' + stats.srm.pValue + ' · 경고 기준 p &lt; ' + stats.srm.threshold}"></small>
                         </div>
+                        <div class="table-responsive">
                         <table class="table table-hover mb-4">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Variant</th>
-                                    <th class="text-end">노출 사용자</th>
-                                    <th class="text-end">전환 사용자</th>
-                                    <th class="text-end">CVR</th>
-                                    <th class="text-end">95% 신뢰구간</th>
+                                    <th scope="col">Variant</th>
+                                    <th scope="col" class="text-end">노출 사용자</th>
+                                    <th scope="col" class="text-end">전환 사용자</th>
+                                    <th scope="col" class="text-end">CVR</th>
+                                    <th scope="col" class="text-end">95% 신뢰구간</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -115,6 +133,7 @@
                                 </tr>
                             </tbody>
                         </table>
+                        </div>
                         <div class="border rounded p-3 mb-3">
                             <h6>그룹 간 전환율 검정</h6>
                             <p th:text="${stats.comparison.message}"></p>

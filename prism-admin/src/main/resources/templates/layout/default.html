@@ -1,17 +1,42 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" th:fragment="layout(content)">
+<html lang="ko" xmlns:th="http://www.thymeleaf.org" th:fragment="layout(content)">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Prism Admin</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script>
+        /* 테마 조기 적용(FOUC 방지): 시스템 설정 존중 + localStorage 수동 오버라이드.
+           저장소 접근 불가 시 기본값 유지. data-bs-theme 속성이 부트스트랩 테마 셀렉터. */
+        (function () {
+            try {
+                var stored = window.localStorage.getItem('prism-theme');
+                var prefersDark = window.matchMedia
+                    && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                document.documentElement.setAttribute(
+                    'data-bs-theme',
+                    stored === 'light' || stored === 'dark' ? stored : (prefersDark ? 'dark' : 'light'));
+            } catch (e) { /* 무시: 기본 테마로 진행 */ }
+            document.addEventListener('click', function (event) {
+                var toggle = event.target.closest ? event.target.closest('[data-bs-theme-toggle]') : null;
+                if (!toggle) return;
+                var next = document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-bs-theme', next);
+                try { window.localStorage.setItem('prism-theme', next); } catch (e) { /* 무시 */ }
+            });
+        })();
+    </script>
+    <link rel="stylesheet" href="/vendor/bootstrap/5.3.8/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/css/prism.css">
 </head>
-<body class="bg-light">
+<body>
 
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
         <div class="container">
             <a class="navbar-brand" href="/admin/experiments">🌈 Prism Admin</a>
             <div class="navbar-nav ms-auto">
                 <span class="navbar-text me-3" th:text="${currentUser}"></span>
+                <button type="button" class="btn btn-outline-light btn-sm me-2" data-bs-theme-toggle
+                        aria-label="색상 테마 전환 (라이트/다크)">🌗</button>
                 <form th:action="@{/logout}" method="post"><button class="btn btn-outline-light btn-sm" type="submit">로그아웃</button></form>
                 <a class="nav-link" href="/admin/experiments">실험 목록</a>
                 <a class="nav-link" href="/admin/simulator">시뮬레이터</a>
@@ -22,6 +47,6 @@
 
     <div class="container" th:replace="${content}"></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/vendor/bootstrap/5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
