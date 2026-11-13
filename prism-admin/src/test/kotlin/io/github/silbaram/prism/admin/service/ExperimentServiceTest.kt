@@ -1,4 +1,4 @@
-package com.prism.admin.service
+package io.github.silbaram.prism.admin.service.
 
 import io.github.silbaram.prism.admin.exception.InvalidVariantWeightException
 import io.github.silbaram.prism.admin.service.ExperimentService

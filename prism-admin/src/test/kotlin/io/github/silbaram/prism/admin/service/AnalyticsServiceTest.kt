@@ -1,4 +1,4 @@
-package com.prism.admin.service
+package io.github.silbaram.prism.admin.service.
 
 import io.github.silbaram.prism.admin.service.AnalyticsService
 import io.github.silbaram.prism.admin.service.wilsonInterval
